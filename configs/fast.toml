@@ -1,0 +1,73 @@
+[project]
+name = "hex6"
+phase = "fast_sprint"
+
+[runtime]
+python_version = "3.11"
+preferred_device = "cuda"
+allow_cpu_fallback = true
+
+[game]
+board_mode = "sparse_infinite"
+coordinate_system = "axial"
+players = ["x", "o"]
+win_length = 6
+opening_placements = 1
+turn_placements = 2
+contiguous_lines_only = true
+
+[prototype]
+analysis_margin = 8
+outer_search_margin = 8
+prune_globally_dead_cells = true
+allow_long_range_islands = false
+first_stone_candidate_limit = 6
+second_stone_candidate_limit = 2
+frontier_distance = 1
+island_min_distance = 5
+island_max_distance = 12
+min_open_windows_for_island = 3
+
+[search]
+algorithm = "baseline_fast"
+factorize_two_stone_actions = true
+use_progressive_widening = false
+use_transposition_table = false
+root_simulations = 0
+tactical_solver = "heuristic"
+shallow_reply_width = 1
+
+[training]
+bootstrap_strategy = "search_supervision_then_self_play"
+symmetry_augmentation = false
+mixed_precision = true
+replay_buffer_size = 5000
+bootstrap_games = 1
+max_game_plies = 8
+batch_size = 8
+epochs = 1
+learning_rate = 0.001
+policy_target = "first_stone_only"
+
+[model]
+architecture = "hex_resnet_tiny"
+board_crop_radius = 6
+channels = 16
+blocks = 2
+
+[scoring]
+frontier = 1.0
+friendly_open_window = 1.5
+enemy_open_window = 1.75
+friendly_alignment = 3.0
+enemy_alignment = 3.25
+intersection = 1.25
+island = 0.0
+space = 0.25
+
+[heuristic]
+alignment_weights = [0.0, 1.0, 3.0, 9.0, 30.0, 120.0, 100000.0]
+enemy_alignment_weights = [0.0, 1.25, 3.5, 10.0, 32.0, 125.0, 100000.0]
+live_cell_weight = 0.1
+candidate_score_weight = 0.25
+terminal_score = 1000000.0
