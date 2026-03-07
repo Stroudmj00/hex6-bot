@@ -113,6 +113,18 @@ class IntegrationConfig:
 
 
 @dataclass(frozen=True)
+class EvaluationConfig:
+    arena_games: int
+    max_game_plies: int
+    initial_elo: float
+    k_factor: float
+    model_policy_weight: float
+    model_value_weight: float
+    model_heuristic_weight: float
+    record_game_history: bool
+
+
+@dataclass(frozen=True)
 class AppConfig:
     project: ProjectConfig
     runtime: RuntimeConfig
@@ -124,6 +136,7 @@ class AppConfig:
     scoring: ScoringConfig
     heuristic: HeuristicConfig
     integration: IntegrationConfig
+    evaluation: EvaluationConfig
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "AppConfig":
@@ -145,6 +158,7 @@ class AppConfig:
                 include_candidate_edge=data["heuristic"]["include_candidate_edge"],
             ),
             integration=IntegrationConfig(**data["integration"]),
+            evaluation=EvaluationConfig(**data["evaluation"]),
         )
 
 

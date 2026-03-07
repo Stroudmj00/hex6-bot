@@ -123,6 +123,7 @@ def train_bootstrap(
     output_dir: str | Path = "artifacts/bootstrap",
     config_path: str = "configs/default.toml",
     progress_callback: ProgressCallback | None = None,
+    final_stage: str = "complete",
 ) -> dict[str, float | int | str]:
     config = config or load_config()
     output_path = Path(output_dir)
@@ -228,7 +229,7 @@ def train_bootstrap(
 
     with (output_path / "metrics.json").open("w", encoding="ascii") as handle:
         json.dump(metrics, handle, indent=2)
-    _emit_progress(progress_path, progress_callback, {"stage": "complete", **metrics})
+    _emit_progress(progress_path, progress_callback, {"stage": final_stage, **metrics})
 
     return metrics
 

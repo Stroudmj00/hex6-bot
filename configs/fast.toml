@@ -81,3 +81,13 @@ github_base_branch = "main"
 status_path = "status/latest.json"
 run_history_path = "status/runs"
 watch_poll_seconds = 5.0
+
+[evaluation]
+arena_games = 2
+max_game_plies = 24
+initial_elo = 1200.0
+k_factor = 24.0
+model_policy_weight = 0.45
+model_value_weight = 1.0
+model_heuristic_weight = 0.015
+record_game_history = true
