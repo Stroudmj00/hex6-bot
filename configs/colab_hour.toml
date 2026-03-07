@@ -1,0 +1,93 @@
+[project]
+name = "hex6"
+phase = "colab_hour_cycle"
+
+[runtime]
+python_version = "3.11"
+preferred_device = "cuda"
+allow_cpu_fallback = true
+
+[game]
+board_mode = "sparse_infinite"
+coordinate_system = "axial"
+players = ["x", "o"]
+win_length = 6
+opening_placements = 1
+turn_placements = 2
+contiguous_lines_only = true
+
+[prototype]
+analysis_margin = 8
+outer_search_margin = 9
+prune_globally_dead_cells = true
+allow_long_range_islands = false
+first_stone_candidate_limit = 8
+second_stone_candidate_limit = 3
+frontier_distance = 1
+island_min_distance = 5
+island_max_distance = 12
+min_open_windows_for_island = 3
+
+[search]
+algorithm = "baseline_colab_hour"
+factorize_two_stone_actions = true
+use_progressive_widening = false
+use_transposition_table = false
+root_simulations = 0
+tactical_solver = "heuristic"
+shallow_reply_width = 2
+
+[training]
+bootstrap_strategy = "search_supervision_then_self_play"
+symmetry_augmentation = true
+mixed_precision = true
+replay_buffer_size = 30000
+bootstrap_games = 4
+max_game_plies = 16
+batch_size = 24
+epochs = 4
+learning_rate = 0.0008
+policy_target = "first_stone_only"
+
+[model]
+architecture = "hex_resnet_small"
+board_crop_radius = 6
+channels = 32
+blocks = 4
+
+[scoring]
+frontier = 1.0
+friendly_open_window = 1.5
+enemy_open_window = 1.75
+friendly_alignment = 3.0
+enemy_alignment = 3.25
+intersection = 1.25
+island = 0.0
+space = 0.25
+
+[heuristic]
+alignment_weights = [0.0, 1.0, 3.0, 9.0, 30.0, 120.0, 100000.0]
+enemy_alignment_weights = [0.0, 1.25, 3.5, 10.0, 32.0, 125.0, 100000.0]
+live_cell_weight = 0.1
+candidate_score_weight = 0.25
+terminal_score = 1000000.0
+include_candidate_edge = false
+
+[integration]
+status_backend = "github_branch"
+github_repo = "Stroudmj00/hex6-bot"
+github_branch = "colab-status"
+github_base_branch = "main"
+status_path = "status/latest.json"
+run_history_path = "status/runs"
+watch_poll_seconds = 5.0
+
+[evaluation]
+arena_games = 8
+max_game_plies = 32
+initial_elo = 1200.0
+k_factor = 24.0
+model_policy_weight = 0.45
+model_value_weight = 1.0
+model_heuristic_weight = 0.015
+record_game_history = true

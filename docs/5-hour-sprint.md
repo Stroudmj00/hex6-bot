@@ -11,6 +11,18 @@ In the next `5` hours, aim to produce the strongest *validated baseline* we can,
 - at least one trained model checkpoint,
 - and evaluation results that tell us what to improve next.
 
+## Current implementation state
+
+The sprint is now past the pure planning phase:
+
+- the local web app exists and supports interactive play,
+- bootstrap training runs end-to-end,
+- Colab status is bridged back through GitHub,
+- arena evaluation produces Elo snapshots,
+- and the longer Colab path can run repeated train/eval cycles.
+
+The next emphasis is improving strength per unit time, not rebuilding the scaffolding.
+
 ## Working principle
 
 This sprint should run as a short feedback loop, not as a long uninterrupted build. The loop
@@ -197,4 +209,3 @@ During this sprint, optimize for:
 
 That order gives the highest chance of ending the session with a bot that actually works and
 teaches us something.
-

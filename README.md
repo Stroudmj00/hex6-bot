@@ -27,6 +27,7 @@ for GPU ML packages.
 - `configs/default.toml`: game, search, training, and prototype assumptions.
 - `configs/fast.toml`: reduced profile for fast local/Colab iteration.
 - `configs/colab.toml`: medium-scale Colab training profile.
+- `configs/colab_hour.toml`: longer Colab cycle profile with post-cycle Elo tracking.
 - `configs/play.toml`: local website/play profile.
 - `docs/game-exploration.md`: working notes about the game and the search problem.
 - `docs/architecture.md`: package boundaries and intended module responsibilities.
@@ -48,6 +49,12 @@ for GPU ML packages.
 
 ```powershell
 .venv\Scripts\python -m hex6.train.run_bootstrap --config configs/colab.toml --output artifacts/bootstrap_colab
+```
+
+## Colab hour-cycle run
+
+```powershell
+.venv\Scripts\python -m hex6.train.run_cycle --config configs/colab_hour.toml --output-root artifacts/bootstrap_colab_hour --minutes 60
 ```
 
 ## Watch Colab status

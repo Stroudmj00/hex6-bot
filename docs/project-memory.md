@@ -35,3 +35,5 @@ the working context.
   working and measured.
 - End-state goal for the sprint is a playable website against the current bot, with Colab
   available for heavier training runs.
+- The current measurement path is bootstrap training plus arena Elo tracking after each
+  cycle; full model-guided self-play is a later upgrade.

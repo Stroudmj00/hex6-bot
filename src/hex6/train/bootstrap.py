@@ -124,6 +124,7 @@ def train_bootstrap(
     config_path: str = "configs/default.toml",
     progress_callback: ProgressCallback | None = None,
     final_stage: str = "complete",
+    init_checkpoint_path: str | Path | None = None,
 ) -> dict[str, float | int | str]:
     config = config or load_config()
     output_path = Path(output_dir)
@@ -150,6 +151,9 @@ def train_bootstrap(
         channels=config.model.channels,
         blocks=config.model.blocks,
     ).to(device)
+    if init_checkpoint_path is not None:
+        checkpoint = torch.load(init_checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.training.learning_rate)
     policy_loss_fn = nn.CrossEntropyLoss()
@@ -226,6 +230,8 @@ def train_bootstrap(
         "final_value_loss": history[-1]["value_loss"],
         "checkpoint": str(checkpoint_path),
     }
+    if init_checkpoint_path is not None:
+        metrics["init_checkpoint"] = str(init_checkpoint_path)
 
     with (output_path / "metrics.json").open("w", encoding="ascii") as handle:
         json.dump(metrics, handle, indent=2)

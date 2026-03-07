@@ -29,6 +29,7 @@ bridge rather than assuming hidden shared session access.
 - Config-selectable bootstrap CLI.
 - Fast profile at `configs/fast.toml`.
 - Medium profile at `configs/colab.toml`.
+- Hour-cycle profile at `configs/colab_hour.toml`.
 - Colab notebook at `notebooks/hex6_colab_fast_bootstrap.ipynb`.
 - Local watcher at `python -m hex6.integration.watch_status`.
 
@@ -51,7 +52,8 @@ publishing for that run.
 ## Recommended first run
 
 Use the fast profile first if you are only checking wiring. For a real sprint run, use
-`configs/colab.toml`.
+`configs/colab.toml`. For a longer session that should keep producing checkpoints and Elo
+history over time, use `configs/colab_hour.toml` with the cycle runner.
 
 The Colab profile is still intentionally conservative:
 
@@ -62,7 +64,14 @@ The Colab profile is still intentionally conservative:
 - short bootstrap games,
 - a few epochs.
 
-This is not the final bot. It is the shortest path to a working training loop.
+This is not full AlphaZero-style self-training yet. The current longer loop is:
+
+- search-generated self-play data,
+- warm-start the next cycle from the previous checkpoint,
+- evaluate the new checkpoint against the baseline,
+- append Elo history after each cycle.
+
+That is enough to measure whether the model is moving in the right direction over an hour.
 
 ## How to use in Colab
 
@@ -91,16 +100,23 @@ This is not the final bot. It is the shortest path to a working training loop.
 - clones or copies the repo into `/content`,
 - installs the package in editable mode,
 - prints CUDA availability,
-- runs:
+- runs either:
 
 ```bash
 python -m hex6.train.run_bootstrap --config configs/colab.toml --output artifacts/bootstrap_colab
+```
+
+or:
+
+```bash
+python -m hex6.train.run_cycle --config configs/colab_hour.toml --output-root artifacts/bootstrap_colab_hour --minutes 60
 ```
 
 - copies the resulting artifacts back to Drive if Drive mode is enabled.
 - writes progress to `artifacts/bootstrap_colab/progress.json`.
 - writes a GitHub-backed status document to the `colab-status` branch when
   `HEX6_GITHUB_TOKEN` is available.
+- writes `arena.json` and `elo_history.json` when evaluation is enabled.
 
 ## Current local validation
 
