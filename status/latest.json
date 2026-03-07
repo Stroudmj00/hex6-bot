@@ -7,12 +7,9 @@
   "status_backend": "github_branch",
   "host": "DESKTOP-FDD9NTI",
   "started_at": "2026-03-07T21:29:13Z",
-  "updated_at": "2026-03-07T21:29:40Z",
-  "sequence": 2,
-  "stage": "self_play",
-  "completed_games": 1,
-  "total_games": 1,
-  "examples_so_far": 5,
-  "last_winner": null,
-  "last_game_plies": 9
+  "updated_at": "2026-03-07T21:29:42Z",
+  "sequence": 3,
+  "stage": "dataset_ready",
+  "examples": 5,
+  "encoded_examples": 4
 }
