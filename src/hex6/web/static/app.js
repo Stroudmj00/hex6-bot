@@ -260,8 +260,8 @@ function renderBoard() {
     group.appendChild(polygon);
 
     if (occupant === "x") {
-      group.appendChild(xStroke(-12, -14, 12, 14));
-      group.appendChild(xStroke(-12, 14, 12, -14));
+      group.appendChild(lucideStroke(-12, -14, 12, 14, "token-x"));
+      group.appendChild(lucideStroke(-12, 14, 12, -14, "token-x"));
     } else if (occupant === "o") {
       const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       circle.setAttribute("r", "15");
@@ -354,13 +354,13 @@ function hexPoints(radius) {
   return points.join(" ");
 }
 
-function xStroke(x1, y1, x2, y2) {
+function lucideStroke(x1, y1, x2, y2, className) {
   const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
   line.setAttribute("x1", String(x1));
   line.setAttribute("y1", String(y1));
   line.setAttribute("x2", String(x2));
   line.setAttribute("y2", String(y2));
-  line.setAttribute("class", "token-x");
+  line.setAttribute("class", className);
   return line;
 }
 

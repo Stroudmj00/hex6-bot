@@ -11,6 +11,12 @@
   --hex-selected: rgba(78, 141, 192, 0.24);
   --hex-recent: rgba(49, 130, 78, 0.18);
   --hex-win: rgba(41, 163, 84, 0.22);
+  --hex-x-fill: rgba(229, 82, 75, 0.17);
+  --hex-x-stroke: rgba(184, 45, 39, 0.28);
+  --hex-o-fill: rgba(74, 144, 226, 0.16);
+  --hex-o-stroke: rgba(45, 98, 176, 0.28);
+  --token-x: #c0392b;
+  --token-o: #2f6cbf;
   --light-stroke: rgba(30, 30, 30, 0.12);
   --shadow: 0 20px 60px rgba(17, 17, 17, 0.1);
 }
@@ -209,6 +215,18 @@ input {
   stroke-width: 1.5;
 }
 
+.hex.x polygon {
+  fill: var(--hex-x-fill);
+  stroke: var(--hex-x-stroke);
+  stroke-width: 1.6;
+}
+
+.hex.o polygon {
+  fill: var(--hex-o-fill);
+  stroke: var(--hex-o-stroke);
+  stroke-width: 1.6;
+}
+
 .hex.selected polygon {
   fill: var(--hex-selected);
 }
@@ -222,15 +240,17 @@ input {
 }
 
 .token-x {
-  stroke: #111111;
-  stroke-width: 6;
+  stroke: var(--token-x);
+  stroke-width: 4.75;
   stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
 }
 
 .token-o {
   fill: none;
-  stroke: #111111;
-  stroke-width: 5;
+  stroke: var(--token-o);
+  stroke-width: 4.5;
 }
 
 @keyframes rise {
