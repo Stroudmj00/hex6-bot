@@ -7,9 +7,16 @@
   "status_backend": "github_branch",
   "host": "DESKTOP-FDD9NTI",
   "started_at": "2026-03-07T21:29:13Z",
-  "updated_at": "2026-03-07T21:29:42Z",
-  "sequence": 3,
-  "stage": "dataset_ready",
-  "examples": 5,
-  "encoded_examples": 4
+  "updated_at": "2026-03-07T21:29:45Z",
+  "sequence": 4,
+  "stage": "training",
+  "epoch": 1,
+  "epochs": 1,
+  "history": [
+    {
+      "epoch": 1,
+      "policy_loss": 5.5087890625,
+      "value_loss": 0.08823993802070618
+    }
+  ]
 }
