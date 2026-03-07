@@ -8,19 +8,29 @@ const turnLabel = document.getElementById("turn-label");
 const placementsLabel = document.getElementById("placements-label");
 const winnerLabel = document.getElementById("winner-label");
 const botMoveLabel = document.getElementById("bot-move-label");
-const manualQ = document.getElementById("manual-q");
-const manualR = document.getElementById("manual-r");
-const addManualButton = document.getElementById("add-manual");
+
+const VIEWBOX = { width: 1000, height: 760 };
+const HEX_RADIUS = 28;
+const HEX_SPACING = 34;
+const GRID_RADIUS = 14;
 
 let sessionId = null;
 let payload = null;
 let selectedCells = [];
+let camera = { x: 0, y: 0 };
+let pointerState = null;
+let suppressClick = false;
 
 newXButton.addEventListener("click", () => newGame("x"));
 newOButton.addEventListener("click", () => newGame("o"));
 clearButton.addEventListener("click", clearSelection);
 submitButton.addEventListener("click", submitMove);
-addManualButton.addEventListener("click", addManualCell);
+
+board.addEventListener("pointerdown", startPan);
+board.addEventListener("pointermove", continuePan);
+board.addEventListener("pointerup", endPan);
+board.addEventListener("pointerleave", endPan);
+board.addEventListener("pointercancel", endPan);
 
 async function newGame(human) {
   const response = await fetch("/api/new-game", {
@@ -31,6 +41,7 @@ async function newGame(human) {
   payload = await response.json();
   sessionId = payload.session_id;
   selectedCells = [];
+  camera = { x: 0, y: 0 };
   render();
 }
 
@@ -61,13 +72,73 @@ async function submitMove() {
   render();
 }
 
-function toggleCell(cell) {
-  if (!payload || payload.state.winner) {
+function clearSelection() {
+  selectedCells = [];
+  renderSelection();
+  renderBoard();
+}
+
+function startPan(event) {
+  pointerState = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    lastX: event.clientX,
+    lastY: event.clientY,
+    moved: false,
+  };
+  board.setPointerCapture(event.pointerId);
+}
+
+function continuePan(event) {
+  if (!pointerState || pointerState.pointerId !== event.pointerId) {
     return;
   }
 
-  const key = `${cell.q},${cell.r}`;
-  const existingIndex = selectedCells.findIndex((item) => `${item.q},${item.r}` === key);
+  const dx = event.clientX - pointerState.lastX;
+  const dy = event.clientY - pointerState.lastY;
+  pointerState.lastX = event.clientX;
+  pointerState.lastY = event.clientY;
+
+  if (!pointerState.moved) {
+    const totalDx = event.clientX - pointerState.startX;
+    const totalDy = event.clientY - pointerState.startY;
+    pointerState.moved = Math.hypot(totalDx, totalDy) > 6;
+  }
+
+  if (pointerState.moved) {
+    camera.x += dx;
+    camera.y += dy;
+    suppressClick = true;
+    renderBoard();
+  }
+}
+
+function endPan(event) {
+  if (!pointerState || pointerState.pointerId !== event.pointerId) {
+    return;
+  }
+  board.releasePointerCapture(event.pointerId);
+  pointerState = null;
+  if (suppressClick) {
+    window.setTimeout(() => {
+      suppressClick = false;
+    }, 0);
+  }
+}
+
+function toggleCell(cell) {
+  if (!payload || payload.state.winner || suppressClick) {
+    return;
+  }
+
+  const key = cellKey(cell);
+  const occupied = new Set(payload.state.stones.map((stone) => cellKey(stone)));
+  if (occupied.has(key)) {
+    return;
+  }
+
+  const existingIndex = selectedCells.findIndex((item) => cellKey(item) === key);
   if (existingIndex >= 0) {
     selectedCells.splice(existingIndex, 1);
     renderSelection();
@@ -80,23 +151,6 @@ function toggleCell(cell) {
   }
 
   selectedCells.push({ q: cell.q, r: cell.r });
-  renderSelection();
-  renderBoard();
-}
-
-function addManualCell() {
-  const q = Number.parseInt(manualQ.value, 10);
-  const r = Number.parseInt(manualR.value, 10);
-  if (Number.isNaN(q) || Number.isNaN(r)) {
-    return;
-  }
-  toggleCell({ q, r });
-  manualQ.value = "";
-  manualR.value = "";
-}
-
-function clearSelection() {
-  selectedCells = [];
   renderSelection();
   renderBoard();
 }
@@ -122,7 +176,7 @@ function renderStatus() {
   placementsLabel.textContent = String(payload.state.placements_remaining);
   winnerLabel.textContent = payload.state.winner ? payload.state.winner.toUpperCase() : "None";
   botMoveLabel.textContent = payload.last_bot_turn.length
-    ? payload.last_bot_turn.map((cell) => `(${cell.q}, ${cell.r})`).join(" ")
+    ? `${payload.last_bot_turn.length} stone${payload.last_bot_turn.length > 1 ? "s" : ""}`
     : "None";
   submitButton.disabled = payload.state.winner !== null;
   clearButton.disabled = selectedCells.length === 0;
@@ -130,17 +184,27 @@ function renderStatus() {
 
 function renderSelection() {
   selectedCellsNode.innerHTML = "";
+  if (!selectedCells.length) {
+    const pill = document.createElement("div");
+    pill.className = "pill subtle";
+    pill.textContent = "No cells selected";
+    selectedCellsNode.appendChild(pill);
+    return;
+  }
+
   selectedCells.forEach((cell, index) => {
     const pill = document.createElement("div");
     pill.className = "pill";
-    pill.innerHTML = `<span>${index + 1}. (${cell.q}, ${cell.r})</span>`;
+    const label = document.createElement("span");
+    label.textContent = `Stone ${index + 1}`;
     const remove = document.createElement("button");
-    remove.textContent = "×";
+    remove.textContent = "x";
     remove.addEventListener("click", () => {
       selectedCells = selectedCells.filter((item) => item !== cell);
       renderSelection();
       renderBoard();
     });
+    pill.appendChild(label);
     pill.appendChild(remove);
     selectedCellsNode.appendChild(pill);
   });
@@ -152,22 +216,25 @@ function renderBoard() {
     return;
   }
 
-  const stones = new Map(payload.state.stones.map((stone) => [`${stone.q},${stone.r}`, stone.player]));
-  const winning = new Set((payload.state.winning_line || []).map((cell) => `${cell.q},${cell.r}`));
-  const selected = new Set(selectedCells.map((cell) => `${cell.q},${cell.r}`));
+  const occupied = new Map(payload.state.stones.map((stone) => [cellKey(stone), stone.player]));
+  const winning = new Set((payload.state.winning_line || []).map((cell) => cellKey(cell)));
+  const selected = new Set(selectedCells.map((cell) => cellKey(cell)));
+  const recent = new Set(payload.last_bot_turn.map((cell) => cellKey(cell)));
+  const cells = visibleCells();
 
-  payload.view.cells.forEach((cell) => {
-    const point = axialToPixel(cell.q, cell.r, payload.view.center.q, payload.view.center.r);
+  cells.forEach((cell) => {
+    const point = axialToPixel(cell.q, cell.r);
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    const classes = ["hex"];
-    const key = `${cell.q},${cell.r}`;
-    const occupant = stones.get(key);
-    classes.push(occupant || "empty");
+    const key = cellKey(cell);
+    const occupant = occupied.get(key);
+    const classes = ["hex", occupant || "empty"];
     if (selected.has(key)) {
       classes.push("selected");
     }
     if (winning.has(key)) {
       classes.push("winning");
+    } else if (recent.has(key)) {
+      classes.push("recent");
     }
     group.setAttribute("class", classes.join(" "));
     group.setAttribute("transform", `translate(${point.x}, ${point.y})`);
@@ -176,32 +243,106 @@ function renderBoard() {
     }
 
     const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
-    polygon.setAttribute("points", hexPoints(28));
+    polygon.setAttribute("points", hexPoints(HEX_RADIUS));
     group.appendChild(polygon);
 
-    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    label.setAttribute("text-anchor", "middle");
-    label.setAttribute("dominant-baseline", "middle");
-    label.setAttribute("y", "2");
-    label.textContent = occupant ? occupant.toUpperCase() : `${cell.q},${cell.r}`;
-    group.appendChild(label);
+    if (occupant === "x") {
+      group.appendChild(xStroke(-12, -14, 12, 14));
+      group.appendChild(xStroke(-12, 14, 12, -14));
+    } else if (occupant === "o") {
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("r", "15");
+      circle.setAttribute("class", "token-o");
+      group.appendChild(circle);
+    }
 
     board.appendChild(group);
   });
 }
 
-function axialToPixel(q, r, centerQ, centerR) {
-  const size = 34;
-  const x = 500 + size * Math.sqrt(3) * (q - centerQ + (r - centerR) / 2);
-  const y = 380 + size * 1.5 * (r - centerR);
+function visibleCells() {
+  const centerApprox = pixelToAxial(-camera.x, -camera.y);
+  const center = axialRound(centerApprox.q, centerApprox.r);
+  const cells = [];
+
+  for (let dq = -GRID_RADIUS; dq <= GRID_RADIUS; dq += 1) {
+    const drMin = Math.max(-GRID_RADIUS, -dq - GRID_RADIUS);
+    const drMax = Math.min(GRID_RADIUS, -dq + GRID_RADIUS);
+    for (let dr = drMin; dr <= drMax; dr += 1) {
+      const cell = { q: center.q + dq, r: center.r + dr };
+      const point = axialToPixel(cell.q, cell.r);
+      if (
+        point.x >= -80 &&
+        point.x <= VIEWBOX.width + 80 &&
+        point.y >= -80 &&
+        point.y <= VIEWBOX.height + 80
+      ) {
+        cells.push(cell);
+      }
+    }
+  }
+
+  return cells;
+}
+
+function axialToPixel(q, r) {
+  const x =
+    VIEWBOX.width / 2 +
+    camera.x +
+    HEX_SPACING * Math.sqrt(3) * (q + r / 2);
+  const y = VIEWBOX.height / 2 + camera.y + HEX_SPACING * 1.5 * r;
   return { x, y };
+}
+
+function pixelToAxial(x, y) {
+  const q = (Math.sqrt(3) / 3 * x - 1 / 3 * y) / HEX_SPACING;
+  const r = (2 / 3 * y) / HEX_SPACING;
+  return { q, r };
+}
+
+function axialRound(q, r) {
+  let x = q;
+  let z = r;
+  let y = -x - z;
+
+  let rx = Math.round(x);
+  let ry = Math.round(y);
+  let rz = Math.round(z);
+
+  const xDiff = Math.abs(rx - x);
+  const yDiff = Math.abs(ry - y);
+  const zDiff = Math.abs(rz - z);
+
+  if (xDiff > yDiff && xDiff > zDiff) {
+    rx = -ry - rz;
+  } else if (yDiff > zDiff) {
+    ry = -rx - rz;
+  } else {
+    rz = -rx - ry;
+  }
+
+  return { q: rx, r: rz };
 }
 
 function hexPoints(radius) {
   const points = [];
-  for (let i = 0; i < 6; i += 1) {
-    const angle = (Math.PI / 180) * (60 * i - 30);
+  for (let index = 0; index < 6; index += 1) {
+    const angle = (Math.PI / 180) * (60 * index - 30);
     points.push(`${Math.cos(angle) * radius},${Math.sin(angle) * radius}`);
   }
   return points.join(" ");
+}
+
+function xStroke(x1, y1, x2, y2) {
+  const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  line.setAttribute("x1", String(x1));
+  line.setAttribute("y1", String(y1));
+  line.setAttribute("x2", String(x2));
+  line.setAttribute("y2", String(y2));
+  line.setAttribute("class", "token-x");
+  return line;
+}
+
+function cellKey(cell) {
+  return `${cell.q},${cell.r}`;
 }
