@@ -7,16 +7,14 @@
   "status_backend": "github_branch",
   "host": "DESKTOP-FDD9NTI",
   "started_at": "2026-03-07T21:29:13Z",
-  "updated_at": "2026-03-07T21:29:45Z",
-  "sequence": 4,
-  "stage": "training",
-  "epoch": 1,
+  "updated_at": "2026-03-07T21:29:47Z",
+  "sequence": 5,
+  "stage": "complete",
+  "device": "cuda",
+  "examples": 5,
+  "encoded_examples": 4,
   "epochs": 1,
-  "history": [
-    {
-      "epoch": 1,
-      "policy_loss": 5.5087890625,
-      "value_loss": 0.08823993802070618
-    }
-  ]
+  "final_policy_loss": 5.5087890625,
+  "final_value_loss": 0.08823993802070618,
+  "checkpoint": "artifacts\\bootstrap_status_smoke\\bootstrap_model.pt"
 }
