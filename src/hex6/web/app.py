@@ -11,7 +11,7 @@ from flask import Flask, jsonify, render_template, request
 from hex6.config import AppConfig, load_config
 from hex6.game import GameState, IllegalMoveError, Player
 from hex6.game.axial import Coord
-from hex6.search import BaselineTurnSearch
+from hex6.search.baseline import BaselineTurnSearch
 
 
 @dataclass

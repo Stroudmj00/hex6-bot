@@ -34,6 +34,8 @@ for GPU ML packages.
 - `docs/roadmap.md`: staged implementation plan.
 - `docs/5-hour-sprint.md`: time-boxed execution plan with feedback checkpoints.
 - `docs/colab.md`: Colab setup and training flow.
+- `docs/tools.md`: command reference for training, evaluation, deployment, and local play.
+- `docs/experiment-report.md`: current interpretation of arena and search-matrix results.
 - `docs/vercel.md`: Vercel deployment notes for the website.
 - `docs/project-memory.md`: persistent project assumptions and operating constraints.
 - `src/hex6/integration/`: explicit status bridge between Colab and local tooling.

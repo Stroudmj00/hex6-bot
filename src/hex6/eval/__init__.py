@@ -10,6 +10,7 @@ from .arena import (
     run_arena,
     update_elo,
 )
+from .search_matrix import run_search_variant_matrix
 
 __all__ = [
     "AgentSpec",
@@ -19,5 +20,6 @@ __all__ = [
     "evaluate_checkpoint_against_baseline",
     "play_game",
     "run_arena",
+    "run_search_variant_matrix",
     "update_elo",
 ]

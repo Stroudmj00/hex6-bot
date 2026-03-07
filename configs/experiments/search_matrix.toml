@@ -1,0 +1,53 @@
+base_config = "../play.toml"
+games = 4
+
+[[variants]]
+name = "candidate_edge"
+description = "Add candidate-edge evaluation to reward positions with stronger top move quality."
+
+[variants.overrides.heuristic]
+include_candidate_edge = true
+candidate_score_weight = 0.3
+
+[[variants]]
+name = "wider_first"
+description = "Expand first-stone candidate width from the interactive baseline."
+
+[variants.overrides.prototype]
+first_stone_candidate_limit = 6
+
+[[variants]]
+name = "wider_pairs"
+description = "Expand second-stone pair search so the bot considers richer two-stone turns."
+
+[variants.overrides.prototype]
+second_stone_candidate_limit = 2
+
+[[variants]]
+name = "reply_depth"
+description = "Search two opponent replies instead of one before committing."
+
+[variants.overrides.search]
+shallow_reply_width = 2
+
+[[variants]]
+name = "frontier_expand"
+description = "Use a broader tactical frontier and search margin."
+
+[variants.overrides.prototype]
+frontier_distance = 2
+outer_search_margin = 8
+
+[[variants]]
+name = "island_seeds"
+description = "Allow long-range island candidates with a small structural bonus."
+
+[variants.overrides.prototype]
+allow_long_range_islands = true
+outer_search_margin = 8
+island_min_distance = 5
+island_max_distance = 12
+min_open_windows_for_island = 3
+
+[variants.overrides.scoring]
+island = 0.7
