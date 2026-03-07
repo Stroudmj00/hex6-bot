@@ -34,6 +34,7 @@ for GPU ML packages.
 - `docs/roadmap.md`: staged implementation plan.
 - `docs/5-hour-sprint.md`: time-boxed execution plan with feedback checkpoints.
 - `docs/colab.md`: Colab setup and training flow.
+- `docs/vercel.md`: Vercel deployment notes for the website.
 - `docs/project-memory.md`: persistent project assumptions and operating constraints.
 - `src/hex6/integration/`: explicit status bridge between Colab and local tooling.
 - `src/hex6/web/`: local website and API for human-vs-bot play.
@@ -68,3 +69,8 @@ for GPU ML packages.
 ```powershell
 .venv\Scripts\python -m hex6.web.run_server --config configs/play.toml --host 127.0.0.1 --port 5000
 ```
+
+## Vercel website
+
+The repo includes a root `app.py` and build step for Vercel. See
+`docs/vercel.md`.

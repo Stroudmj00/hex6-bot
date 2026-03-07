@@ -46,7 +46,15 @@
             <p class="eyebrow">Board</p>
             <h2>Infinite Grid</h2>
           </div>
-          <button id="submit-move" class="primary">Submit Move</button>
+          <div class="board-actions">
+            <div class="zoom-controls">
+              <button id="zoom-out" class="ghost" type="button" aria-label="Zoom out">-</button>
+              <strong id="zoom-label">100%</strong>
+              <button id="zoom-in" class="ghost" type="button" aria-label="Zoom in">+</button>
+              <button id="reset-view" class="ghost" type="button">Reset View</button>
+            </div>
+            <button id="submit-move" class="primary">Submit Move</button>
+          </div>
         </div>
         <svg id="board" viewBox="0 0 1000 760" role="img" aria-label="Hex board"></svg>
       </section>
@@ -56,7 +64,8 @@
         <h2>Selected Cells</h2>
         <div id="selected-cells" class="pill-row"></div>
         <p class="hint">
-          Click empty hexes to place stones. Drag the board to pan around the infinite grid.
+          Click empty hexes to place stones. Drag to pan and use the mouse wheel or zoom buttons
+          to zoom the infinite grid.
         </p>
       </section>
     </main>

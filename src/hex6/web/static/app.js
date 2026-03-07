@@ -3,6 +3,10 @@ const newXButton = document.getElementById("new-x");
 const newOButton = document.getElementById("new-o");
 const clearButton = document.getElementById("clear-selection");
 const submitButton = document.getElementById("submit-move");
+const zoomOutButton = document.getElementById("zoom-out");
+const zoomInButton = document.getElementById("zoom-in");
+const resetViewButton = document.getElementById("reset-view");
+const zoomLabel = document.getElementById("zoom-label");
 const selectedCellsNode = document.getElementById("selected-cells");
 const turnLabel = document.getElementById("turn-label");
 const placementsLabel = document.getElementById("placements-label");
@@ -12,24 +16,31 @@ const botMoveLabel = document.getElementById("bot-move-label");
 const VIEWBOX = { width: 1000, height: 760 };
 const HEX_RADIUS = 28;
 const HEX_SPACING = 34;
-const GRID_RADIUS = 14;
+const ZOOM_MIN = 0.35;
+const ZOOM_MAX = 1.9;
+const ZOOM_STEP = 1.14;
 
 let sessionId = null;
 let payload = null;
 let selectedCells = [];
 let camera = { x: 0, y: 0 };
+let zoom = 1;
 let pointerState = null;
 
 newXButton.addEventListener("click", () => newGame("x"));
 newOButton.addEventListener("click", () => newGame("o"));
 clearButton.addEventListener("click", clearSelection);
 submitButton.addEventListener("click", submitMove);
+zoomOutButton.addEventListener("click", () => zoomAt(1 / ZOOM_STEP));
+zoomInButton.addEventListener("click", () => zoomAt(ZOOM_STEP));
+resetViewButton.addEventListener("click", resetView);
 
 board.addEventListener("pointerdown", startPan);
 board.addEventListener("pointermove", continuePan);
 board.addEventListener("pointerup", endPan);
 board.addEventListener("pointerleave", endPan);
 board.addEventListener("pointercancel", endPan);
+board.addEventListener("wheel", handleWheelZoom, { passive: false });
 
 async function newGame(human) {
   const response = await fetch("/api/new-game", {
@@ -40,7 +51,7 @@ async function newGame(human) {
   payload = await response.json();
   sessionId = payload.session_id;
   selectedCells = [];
-  camera = { x: 0, y: 0 };
+  resetView();
   render();
 }
 
@@ -74,6 +85,13 @@ async function submitMove() {
 function clearSelection() {
   selectedCells = [];
   renderSelection();
+  renderBoard();
+}
+
+function resetView() {
+  camera = { x: 0, y: 0 };
+  zoom = 1;
+  renderZoom();
   renderBoard();
 }
 
@@ -163,17 +181,39 @@ function handleBoardTap(event) {
     return;
   }
   const point = clientToSvgPoint(event.clientX, event.clientY);
-  const axial = pixelToAxial(
-    point.x - VIEWBOX.width / 2 - camera.x,
-    point.y - VIEWBOX.height / 2 - camera.y,
-  );
+  const axial = pixelToAxial(point.x, point.y);
   const rounded = axialRound(axial.q, axial.r);
   toggleCell(rounded);
+}
+
+function handleWheelZoom(event) {
+  event.preventDefault();
+  const factor = event.deltaY > 0 ? 1 / ZOOM_STEP : ZOOM_STEP;
+  const point = clientToSvgPoint(event.clientX, event.clientY);
+  zoomAt(factor, point);
+}
+
+function zoomAt(factor, point = { x: VIEWBOX.width / 2, y: VIEWBOX.height / 2 }) {
+  const nextZoom = clamp(zoom * factor, ZOOM_MIN, ZOOM_MAX);
+  if (Math.abs(nextZoom - zoom) < 0.001) {
+    return;
+  }
+
+  const centerX = VIEWBOX.width / 2;
+  const centerY = VIEWBOX.height / 2;
+  const boardX = (point.x - centerX - camera.x) / zoom;
+  const boardY = (point.y - centerY - camera.y) / zoom;
+  zoom = nextZoom;
+  camera.x = point.x - centerX - boardX * zoom;
+  camera.y = point.y - centerY - boardY * zoom;
+  renderZoom();
+  renderBoard();
 }
 
 function render() {
   renderStatus();
   renderSelection();
+  renderZoom();
   renderBoard();
 }
 
@@ -274,13 +314,15 @@ function renderBoard() {
 }
 
 function visibleCells() {
-  const centerApprox = pixelToAxial(-camera.x, -camera.y);
+  const centerApprox = pixelToAxial(VIEWBOX.width / 2, VIEWBOX.height / 2);
   const center = axialRound(centerApprox.q, centerApprox.r);
   const cells = [];
+  const boardSpan = Math.max(VIEWBOX.width, VIEWBOX.height) / (HEX_SPACING * zoom);
+  const radius = Math.max(10, Math.ceil(boardSpan / 1.2) + 3);
 
-  for (let dq = -GRID_RADIUS; dq <= GRID_RADIUS; dq += 1) {
-    const drMin = Math.max(-GRID_RADIUS, -dq - GRID_RADIUS);
-    const drMax = Math.min(GRID_RADIUS, -dq + GRID_RADIUS);
+  for (let dq = -radius; dq <= radius; dq += 1) {
+    const drMin = Math.max(-radius, -dq - radius);
+    const drMax = Math.min(radius, -dq + radius);
     for (let dr = drMin; dr <= drMax; dr += 1) {
       const cell = { q: center.q + dq, r: center.r + dr };
       const point = axialToPixel(cell.q, cell.r);
@@ -299,17 +341,21 @@ function visibleCells() {
 }
 
 function axialToPixel(q, r) {
+  const scale = HEX_SPACING * zoom;
   const x =
     VIEWBOX.width / 2 +
     camera.x +
-    HEX_SPACING * Math.sqrt(3) * (q + r / 2);
-  const y = VIEWBOX.height / 2 + camera.y + HEX_SPACING * 1.5 * r;
+    scale * Math.sqrt(3) * (q + r / 2);
+  const y = VIEWBOX.height / 2 + camera.y + scale * 1.5 * r;
   return { x, y };
 }
 
-function pixelToAxial(x, y) {
-  const q = (Math.sqrt(3) / 3 * x - 1 / 3 * y) / HEX_SPACING;
-  const r = (2 / 3 * y) / HEX_SPACING;
+function pixelToAxial(svgX, svgY) {
+  const scale = HEX_SPACING * zoom;
+  const x = svgX - VIEWBOX.width / 2 - camera.x;
+  const y = svgY - VIEWBOX.height / 2 - camera.y;
+  const q = (Math.sqrt(3) / 3 * x - y / 3) / scale;
+  const r = ((2 * y) / 3) / scale;
   return { q, r };
 }
 
@@ -346,10 +392,11 @@ function axialRound(q, r) {
 }
 
 function hexPoints(radius) {
+  const scaledRadius = radius * zoom;
   const points = [];
   for (let index = 0; index < 6; index += 1) {
     const angle = (Math.PI / 180) * (60 * index - 30);
-    points.push(`${Math.cos(angle) * radius},${Math.sin(angle) * radius}`);
+    points.push(`${Math.cos(angle) * scaledRadius},${Math.sin(angle) * scaledRadius}`);
   }
   return points.join(" ");
 }
@@ -366,4 +413,12 @@ function lucideStroke(x1, y1, x2, y2, className) {
 
 function cellKey(cell) {
   return `${cell.q},${cell.r}`;
+}
+
+function renderZoom() {
+  zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }

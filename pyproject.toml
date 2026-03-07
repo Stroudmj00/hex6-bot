@@ -30,3 +30,6 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.vercel.scripts]
+build = "python build.py"
