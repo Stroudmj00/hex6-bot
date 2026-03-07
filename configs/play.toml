@@ -1,6 +1,6 @@
 [project]
 name = "hex6"
-phase = "fast_sprint"
+phase = "interactive_play"
 
 [runtime]
 python_version = "3.11"
@@ -18,18 +18,18 @@ contiguous_lines_only = true
 
 [prototype]
 analysis_margin = 8
-outer_search_margin = 8
+outer_search_margin = 7
 prune_globally_dead_cells = true
 allow_long_range_islands = false
-first_stone_candidate_limit = 6
+first_stone_candidate_limit = 5
 second_stone_candidate_limit = 2
 frontier_distance = 1
 island_min_distance = 5
-island_max_distance = 12
+island_max_distance = 10
 min_open_windows_for_island = 3
 
 [search]
-algorithm = "baseline_fast"
+algorithm = "baseline_play"
 factorize_two_stone_actions = true
 use_progressive_widening = false
 use_transposition_table = false
@@ -63,12 +63,12 @@ friendly_alignment = 3.0
 enemy_alignment = 3.25
 intersection = 1.25
 island = 0.0
-space = 0.25
+space = 0.2
 
 [heuristic]
 alignment_weights = [0.0, 1.0, 3.0, 9.0, 30.0, 120.0, 100000.0]
 enemy_alignment_weights = [0.0, 1.25, 3.5, 10.0, 32.0, 125.0, 100000.0]
 live_cell_weight = 0.1
-candidate_score_weight = 0.25
+candidate_score_weight = 0.2
 terminal_score = 1000000.0
 include_candidate_edge = false

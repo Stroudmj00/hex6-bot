@@ -1,0 +1,247 @@
+:root {
+  --bg-top: #f0dfc9;
+  --bg-bottom: #0f3c49;
+  --panel: rgba(255, 248, 239, 0.88);
+  --panel-strong: rgba(252, 241, 225, 0.98);
+  --ink: #1f2024;
+  --muted: #5d6570;
+  --accent: #0f6f72;
+  --accent-strong: #0a5558;
+  --hex-empty: rgba(255, 255, 255, 0.6);
+  --hex-x: #0c7073;
+  --hex-o: #c85e36;
+  --hex-selected: #f2c14e;
+  --hex-win: #2f9e44;
+  --light-stroke: rgba(20, 33, 42, 0.14);
+  --shadow: 0 20px 60px rgba(17, 33, 46, 0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+  color: var(--ink);
+  background: linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.32), transparent 30%),
+    radial-gradient(circle at 80% 15%, rgba(255, 236, 196, 0.24), transparent 24%),
+    radial-gradient(circle at 60% 75%, rgba(8, 89, 96, 0.2), transparent 30%);
+  pointer-events: none;
+}
+
+.layout {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 320px 1fr 280px;
+  gap: 20px;
+  padding: 24px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  padding: 20px;
+  animation: rise 420ms ease both;
+}
+
+.board-panel {
+  background: var(--panel-strong);
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-weight: 700;
+}
+
+.lede,
+.hint {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.controls,
+.manual-entry,
+.board-header,
+.pill-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.board-header {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.status-grid {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.status-grid .label {
+  display: block;
+  font-size: 0.74rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 16px;
+  cursor: pointer;
+  transition: transform 140ms ease, background 140ms ease, opacity 140ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button.primary {
+  background: var(--accent);
+  color: white;
+}
+
+button.secondary {
+  background: rgba(15, 111, 114, 0.12);
+  color: var(--accent-strong);
+}
+
+button.ghost {
+  background: rgba(20, 33, 42, 0.08);
+  color: var(--ink);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+input {
+  border: 1px solid rgba(20, 33, 42, 0.14);
+  background: rgba(255, 255, 255, 0.78);
+  border-radius: 14px;
+  padding: 10px 12px;
+  width: 100px;
+}
+
+.pill-row {
+  min-height: 48px;
+  margin-bottom: 16px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 111, 114, 0.1);
+  color: var(--accent-strong);
+  border-radius: 999px;
+  padding: 8px 12px;
+}
+
+.pill button {
+  padding: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+#board {
+  width: 100%;
+  min-height: 620px;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.86), rgba(245, 232, 215, 0.92));
+  border: 1px solid rgba(20, 33, 42, 0.08);
+}
+
+.hex {
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.hex:hover {
+  transform: translateY(-2px);
+}
+
+.hex.empty polygon {
+  fill: var(--hex-empty);
+  stroke: var(--light-stroke);
+}
+
+.hex.x polygon {
+  fill: var(--hex-x);
+}
+
+.hex.o polygon {
+  fill: var(--hex-o);
+}
+
+.hex.selected polygon {
+  fill: var(--hex-selected);
+}
+
+.hex.winning polygon {
+  fill: var(--hex-win);
+}
+
+.hex text {
+  pointer-events: none;
+  fill: rgba(20, 33, 42, 0.68);
+  font-size: 11px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  #board {
+    min-height: 520px;
+  }
+}

@@ -50,3 +50,13 @@ def line_cells(start: Coord, direction: Coord, length: int) -> tuple[Coord, ...]
 def min_distance_to_any(cell: Coord, others: Iterable[Coord]) -> int:
     return min(hex_distance(cell, other) for other in others)
 
+
+def hex_disc(center: Coord, radius: int) -> tuple[Coord, ...]:
+    cq, cr = center
+    cells: list[Coord] = []
+    for dq in range(-radius, radius + 1):
+        dr_min = max(-radius, -dq - radius)
+        dr_max = min(radius, -dq + radius)
+        for dr in range(dr_min, dr_max + 1):
+            cells.append((cq + dq, cr + dr))
+    return tuple(cells)

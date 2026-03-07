@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Sequence
+from typing import Any, Literal, Sequence
 
 from hex6.config.schema import GameConfig
 from hex6.game.axial import Coord, LINE_AXES, add_coords, hex_distance, line_cells
@@ -58,6 +58,16 @@ class GameState:
     def is_terminal(self) -> bool:
         return self.winner is not None
 
+    def signature(self) -> tuple[Any, ...]:
+        return (
+            tuple(sorted(self.stones.items())),
+            self.to_play,
+            self.placements_remaining,
+            self.turn_index,
+            self.ply_count,
+            self.winner,
+        )
+
     def opponent(self, player: Player | None = None) -> Player:
         player = player or self.to_play
         return "o" if player == "x" else "x"
@@ -67,6 +77,35 @@ class GameState:
 
     def is_legal_placement(self, cell: Coord) -> bool:
         return not self.is_terminal and self.is_empty(cell)
+
+    def occupied_bounds(self) -> tuple[int, int, int, int]:
+        if not self.stones:
+            return 0, 0, 0, 0
+        qs = [coord[0] for coord in self.stones]
+        rs = [coord[1] for coord in self.stones]
+        return min(qs), max(qs), min(rs), max(rs)
+
+    def suggested_center(self) -> Coord:
+        min_q, max_q, min_r, max_r = self.occupied_bounds()
+        return round((min_q + max_q) / 2), round((min_r + max_r) / 2)
+
+    def to_mapping(self) -> dict[str, Any]:
+        return {
+            "stones": [
+                {"q": q, "r": r, "player": player}
+                for (q, r), player in sorted(self.stones.items())
+            ],
+            "to_play": self.to_play,
+            "placements_remaining": self.placements_remaining,
+            "turn_index": self.turn_index,
+            "ply_count": self.ply_count,
+            "winner": self.winner,
+            "winning_line": (
+                [{"q": q, "r": r} for q, r in self.winning_line]
+                if self.winning_line is not None
+                else None
+            ),
+        }
 
     def apply_turn(self, cells: Sequence[Coord], game_config: GameConfig) -> "GameState":
         if len(cells) != self.placements_remaining:

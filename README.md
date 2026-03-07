@@ -26,15 +26,30 @@ for GPU ML packages.
 
 - `configs/default.toml`: game, search, training, and prototype assumptions.
 - `configs/fast.toml`: reduced profile for fast local/Colab iteration.
+- `configs/colab.toml`: medium-scale Colab training profile.
+- `configs/play.toml`: local website/play profile.
 - `docs/game-exploration.md`: working notes about the game and the search problem.
 - `docs/architecture.md`: package boundaries and intended module responsibilities.
 - `docs/roadmap.md`: staged implementation plan.
 - `docs/5-hour-sprint.md`: time-boxed execution plan with feedback checkpoints.
 - `docs/colab.md`: Colab setup and training flow.
+- `src/hex6/web/`: local website and API for human-vs-bot play.
 - `src/hex6/prototype/candidate_explorer.py`: importable exploration module.
 
 ## Fast bootstrap run
 
 ```powershell
 .venv\Scripts\python -m hex6.train.run_bootstrap --config configs/fast.toml --output artifacts/bootstrap_fast
+```
+
+## Colab bootstrap run
+
+```powershell
+.venv\Scripts\python -m hex6.train.run_bootstrap --config configs/colab.toml --output artifacts/bootstrap_colab
+```
+
+## Local website
+
+```powershell
+.venv\Scripts\python -m hex6.web.run_server --config configs/play.toml --host 127.0.0.1 --port 5000
 ```

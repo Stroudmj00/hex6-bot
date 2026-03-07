@@ -2,25 +2,29 @@
 
 ## Goal
 
-Run the same fast bootstrap flow in Google Colab so training can use a hosted GPU while the
+Run the same bootstrap flow in Google Colab so training can use a hosted GPU while the
 codebase stays local-friendly.
 
 ## What is ready
 
 - Config-selectable bootstrap CLI.
 - Fast profile at `configs/fast.toml`.
+- Medium profile at `configs/colab.toml`.
 - Colab notebook at `notebooks/hex6_colab_fast_bootstrap.ipynb`.
 
 ## Recommended first run
 
-Use the fast profile first. It is intentionally small:
+Use the fast profile first if you are only checking wiring. For a real sprint run, use
+`configs/colab.toml`.
+
+The Colab profile is still intentionally conservative:
 
 - no long-range islands,
 - narrow candidate counts,
 - shallow reply width,
-- tiny model,
-- one short bootstrap game,
-- one epoch.
+- modest model,
+- short bootstrap games,
+- a few epochs.
 
 This is not the final bot. It is the shortest path to a working training loop.
 
@@ -49,17 +53,21 @@ This is not the final bot. It is the shortest path to a working training loop.
 - runs:
 
 ```bash
-python -m hex6.train.run_bootstrap --config configs/fast.toml --output artifacts/bootstrap_fast
+python -m hex6.train.run_bootstrap --config configs/colab.toml --output artifacts/bootstrap_colab
 ```
 
 - copies the resulting artifacts back to Drive if Drive mode is enabled.
+- writes progress to `artifacts/bootstrap_colab/progress.json`.
 
 ## Current local validation
 
-The fast profile already completed locally and produced:
+The project has already been validated locally with both a fast and a medium profile.
 
-- `artifacts/bootstrap_fast/bootstrap_model.pt`
-- `artifacts/bootstrap_fast/metrics.json`
+The medium profile produced:
+
+- `artifacts/bootstrap_colab_test/bootstrap_model.pt`
+- `artifacts/bootstrap_colab_test/metrics.json`
+- `artifacts/bootstrap_colab_test/progress.json`
 
 ## Important limitation
 

@@ -1,6 +1,6 @@
 [project]
 name = "hex6"
-phase = "fast_sprint"
+phase = "colab_training"
 
 [runtime]
 python_version = "3.11"
@@ -29,7 +29,7 @@ island_max_distance = 12
 min_open_windows_for_island = 3
 
 [search]
-algorithm = "baseline_fast"
+algorithm = "baseline_colab"
 factorize_two_stone_actions = true
 use_progressive_widening = false
 use_transposition_table = false
@@ -39,21 +39,21 @@ shallow_reply_width = 1
 
 [training]
 bootstrap_strategy = "search_supervision_then_self_play"
-symmetry_augmentation = false
+symmetry_augmentation = true
 mixed_precision = true
-replay_buffer_size = 5000
-bootstrap_games = 1
-max_game_plies = 8
-batch_size = 8
-epochs = 1
+replay_buffer_size = 20000
+bootstrap_games = 2
+max_game_plies = 12
+batch_size = 16
+epochs = 3
 learning_rate = 0.001
 policy_target = "first_stone_only"
 
 [model]
-architecture = "hex_resnet_tiny"
+architecture = "hex_resnet_small"
 board_crop_radius = 6
-channels = 16
-blocks = 2
+channels = 24
+blocks = 3
 
 [scoring]
 frontier = 1.0

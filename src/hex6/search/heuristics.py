@@ -39,11 +39,13 @@ def evaluate_state(state: GameState, config: AppConfig, player: Player | None = 
     friendly_score = _weighted_total(friendly_counts, config.heuristic.alignment_weights)
     enemy_score = _weighted_total(enemy_counts, config.heuristic.enemy_alignment_weights)
 
-    friendly_candidates = position.top_first_stone_candidates(config, player)
-    enemy_candidates = position.top_first_stone_candidates(config, opponent)
-    candidate_edge = (friendly_candidates[0].total if friendly_candidates else 0.0) - (
-        enemy_candidates[0].total if enemy_candidates else 0.0
-    )
+    candidate_edge = 0.0
+    if config.heuristic.include_candidate_edge:
+        friendly_candidates = position.top_first_stone_candidates(config, player)
+        enemy_candidates = position.top_first_stone_candidates(config, opponent)
+        candidate_edge = (friendly_candidates[0].total if friendly_candidates else 0.0) - (
+            enemy_candidates[0].total if enemy_candidates else 0.0
+        )
 
     total = (
         friendly_score
@@ -75,4 +77,3 @@ def _window_alignment_counts(
 
 def _weighted_total(counts: tuple[int, ...], weights: tuple[float, ...]) -> float:
     return sum(count * weights[index] for index, count in enumerate(counts))
-

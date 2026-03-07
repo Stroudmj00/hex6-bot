@@ -71,3 +71,4 @@ enemy_alignment_weights = [0.0, 1.25, 3.5, 10.0, 32.0, 125.0, 100000.0]
 live_cell_weight = 0.1
 candidate_score_weight = 0.35
 terminal_score = 1000000.0
+include_candidate_edge = true

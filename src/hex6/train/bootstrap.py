@@ -58,10 +58,17 @@ class BootstrapDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]])
 
 
 def generate_bootstrap_examples(config: AppConfig) -> list[BootstrapExample]:
+    return generate_bootstrap_examples_with_progress(config)
+
+
+def generate_bootstrap_examples_with_progress(
+    config: AppConfig,
+    progress_path: Path | None = None,
+) -> list[BootstrapExample]:
     search = BaselineTurnSearch()
     examples: list[BootstrapExample] = []
 
-    for _ in range(config.training.bootstrap_games):
+    for game_index in range(config.training.bootstrap_games):
         state = GameState.initial(config.game)
         trajectory: list[tuple[GameState, Coord]] = []
 
@@ -71,6 +78,10 @@ def generate_bootstrap_examples(config: AppConfig) -> list[BootstrapExample]:
             state = search.apply_cells(state, turn.cells, config)
 
         winner = state.winner
+        print(
+            f"[self-play] game {game_index + 1}/{config.training.bootstrap_games} "
+            f"completed: plies={state.ply_count} winner={winner or 'draw'}"
+        )
         for position, target_cell in trajectory:
             value_target = 0.0 if winner is None else (1.0 if position.to_play == winner else -1.0)
             examples.append(BootstrapExample(position, target_cell, value_target))
@@ -85,6 +96,19 @@ def generate_bootstrap_examples(config: AppConfig) -> list[BootstrapExample]:
                         )
                     )
 
+        if progress_path is not None:
+            _write_json(
+                progress_path,
+                {
+                    "stage": "self_play",
+                    "completed_games": game_index + 1,
+                    "total_games": config.training.bootstrap_games,
+                    "examples_so_far": len(examples),
+                    "last_winner": winner,
+                    "last_game_plies": state.ply_count,
+                },
+            )
+
     return examples
 
 
@@ -96,10 +120,20 @@ def train_bootstrap(
     config = config or load_config()
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    progress_path = output_path / "progress.json"
+    _write_json(progress_path, {"stage": "starting"})
 
-    examples = generate_bootstrap_examples(config)
+    examples = generate_bootstrap_examples_with_progress(config, progress_path)
     dataset = BootstrapDataset(examples, config)
     loader = DataLoader(dataset, batch_size=config.training.batch_size, shuffle=True)
+    _write_json(
+        progress_path,
+        {
+            "stage": "dataset_ready",
+            "examples": len(examples),
+            "encoded_examples": len(dataset),
+        },
+    )
 
     device = _select_device(config)
     model = HexPolicyValueNet(
@@ -148,6 +182,20 @@ def train_bootstrap(
                 "value_loss": value_total / max(batch_count, 1),
             }
         )
+        print(
+            f"[train] epoch {epoch + 1}/{config.training.epochs} "
+            f"policy_loss={history[-1]['policy_loss']:.4f} "
+            f"value_loss={history[-1]['value_loss']:.4f}"
+        )
+        _write_json(
+            progress_path,
+            {
+                "stage": "training",
+                "epoch": epoch + 1,
+                "epochs": config.training.epochs,
+                "history": history,
+            },
+        )
 
     checkpoint_path = output_path / "bootstrap_model.pt"
     torch.save(
@@ -171,6 +219,7 @@ def train_bootstrap(
 
     with (output_path / "metrics.json").open("w", encoding="ascii") as handle:
         json.dump(metrics, handle, indent=2)
+    _write_json(progress_path, {"stage": "complete", **metrics})
 
     return metrics
 
@@ -179,3 +228,8 @@ def _select_device(config: AppConfig) -> torch.device:
     if config.runtime.preferred_device == "cuda" and torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    with path.open("w", encoding="ascii") as handle:
+        json.dump(payload, handle, indent=2)

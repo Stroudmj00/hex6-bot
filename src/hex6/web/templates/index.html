@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hex6 Arena</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="backdrop"></div>
+    <main class="layout">
+      <section class="panel hero">
+        <p class="eyebrow">Local Arena</p>
+        <h1>Hex6 Bot Playground</h1>
+        <p class="lede">
+          Infinite-board rules, cropped local view, current bot running on <code>{{ config_path }}</code>.
+        </p>
+        <div class="controls">
+          <button id="new-x" class="primary">New Game as X</button>
+          <button id="new-o" class="secondary">New Game as O</button>
+          <button id="clear-selection" class="ghost">Clear Selection</button>
+        </div>
+        <div class="status-grid">
+          <div>
+            <span class="label">Turn</span>
+            <strong id="turn-label">Not started</strong>
+          </div>
+          <div>
+            <span class="label">Placements</span>
+            <strong id="placements-label">0</strong>
+          </div>
+          <div>
+            <span class="label">Winner</span>
+            <strong id="winner-label">None</strong>
+          </div>
+          <div>
+            <span class="label">Bot Move</span>
+            <strong id="bot-move-label">None</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel board-panel">
+        <div class="board-header">
+          <div>
+            <p class="eyebrow">Board</p>
+            <h2>Visible Crop</h2>
+          </div>
+          <button id="submit-move" class="primary">Submit Move</button>
+        </div>
+        <svg id="board" viewBox="0 0 1000 760" role="img" aria-label="Hex board"></svg>
+      </section>
+
+      <section class="panel utility">
+        <p class="eyebrow">Move Builder</p>
+        <h2>Selected Cells</h2>
+        <div id="selected-cells" class="pill-row"></div>
+        <div class="manual-entry">
+          <input id="manual-q" type="number" placeholder="q">
+          <input id="manual-r" type="number" placeholder="r">
+          <button id="add-manual" class="secondary">Add Off-Screen Cell</button>
+        </div>
+        <p class="hint">
+          Click visible hexes or add coordinates manually for off-screen island moves.
+        </p>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

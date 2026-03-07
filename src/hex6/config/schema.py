@@ -98,6 +98,7 @@ class HeuristicConfig:
     live_cell_weight: float
     candidate_score_weight: float
     terminal_score: float
+    include_candidate_edge: bool
 
 
 @dataclass(frozen=True)
@@ -129,6 +130,7 @@ class AppConfig:
                 live_cell_weight=data["heuristic"]["live_cell_weight"],
                 candidate_score_weight=data["heuristic"]["candidate_score_weight"],
                 terminal_score=data["heuristic"]["terminal_score"],
+                include_candidate_edge=data["heuristic"]["include_candidate_edge"],
             ),
         )
 
