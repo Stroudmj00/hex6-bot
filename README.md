@@ -34,6 +34,7 @@ for GPU ML packages.
 - `docs/5-hour-sprint.md`: time-boxed execution plan with feedback checkpoints.
 - `docs/colab.md`: Colab setup and training flow.
 - `docs/project-memory.md`: persistent project assumptions and operating constraints.
+- `src/hex6/integration/`: explicit status bridge between Colab and local tooling.
 - `src/hex6/web/`: local website and API for human-vs-bot play.
 - `src/hex6/prototype/candidate_explorer.py`: importable exploration module.
 
@@ -47,6 +48,12 @@ for GPU ML packages.
 
 ```powershell
 .venv\Scripts\python -m hex6.train.run_bootstrap --config configs/colab.toml --output artifacts/bootstrap_colab
+```
+
+## Watch Colab status
+
+```powershell
+.venv\Scripts\python -m hex6.integration.watch_status --config configs/colab.toml --run-id latest
 ```
 
 ## Local website

@@ -102,6 +102,17 @@ class HeuristicConfig:
 
 
 @dataclass(frozen=True)
+class IntegrationConfig:
+    status_backend: str
+    github_repo: str
+    github_branch: str
+    github_base_branch: str
+    status_path: str
+    run_history_path: str
+    watch_poll_seconds: float
+
+
+@dataclass(frozen=True)
 class AppConfig:
     project: ProjectConfig
     runtime: RuntimeConfig
@@ -112,6 +123,7 @@ class AppConfig:
     model: ModelConfig
     scoring: ScoringConfig
     heuristic: HeuristicConfig
+    integration: IntegrationConfig
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "AppConfig":
@@ -132,6 +144,7 @@ class AppConfig:
                 terminal_score=data["heuristic"]["terminal_score"],
                 include_candidate_edge=data["heuristic"]["include_candidate_edge"],
             ),
+            integration=IntegrationConfig(**data["integration"]),
         )
 
 

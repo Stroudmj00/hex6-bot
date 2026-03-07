@@ -6,4 +6,5 @@ def test_load_default_config() -> None:
     assert config.game.win_length == 6
     assert config.prototype.allow_long_range_islands is True
     assert config.search.algorithm == "guided_mcts"
-
+    assert config.integration.status_backend == "none"
+    assert config.integration.github_branch == "colab-status"

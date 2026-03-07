@@ -72,3 +72,12 @@ live_cell_weight = 0.1
 candidate_score_weight = 0.35
 terminal_score = 1000000.0
 include_candidate_edge = true
+
+[integration]
+status_backend = "none"
+github_repo = "Stroudmj00/hex6-bot"
+github_branch = "colab-status"
+github_base_branch = "main"
+status_path = "status/latest.json"
+run_history_path = "status/runs"
+watch_poll_seconds = 5.0

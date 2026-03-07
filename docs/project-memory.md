@@ -23,6 +23,8 @@ the working context.
 - Google Colab is a separate runtime, not a hidden extension of the local shell.
 - Coordination must happen through explicit commits, notebook code, Drive artifacts, logs,
   and saved checkpoints.
+- The primary live-status bridge is now the `colab-status` GitHub branch with machine-written
+  JSON status files.
 - If tighter integration is needed later, it must be implemented as an explicit bridge,
   not assumed.
 

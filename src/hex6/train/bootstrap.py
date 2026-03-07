@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import json
+from typing import Callable
 
 import torch
 from torch import nn
@@ -57,6 +58,9 @@ class BootstrapDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]])
         )
 
 
+ProgressCallback = Callable[[dict[str, object]], None]
+
+
 def generate_bootstrap_examples(config: AppConfig) -> list[BootstrapExample]:
     return generate_bootstrap_examples_with_progress(config)
 
@@ -64,6 +68,7 @@ def generate_bootstrap_examples(config: AppConfig) -> list[BootstrapExample]:
 def generate_bootstrap_examples_with_progress(
     config: AppConfig,
     progress_path: Path | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[BootstrapExample]:
     search = BaselineTurnSearch()
     examples: list[BootstrapExample] = []
@@ -96,9 +101,10 @@ def generate_bootstrap_examples_with_progress(
                         )
                     )
 
-        if progress_path is not None:
-            _write_json(
+        if progress_path is not None or progress_callback is not None:
+            _emit_progress(
                 progress_path,
+                progress_callback,
                 {
                     "stage": "self_play",
                     "completed_games": game_index + 1,
@@ -116,18 +122,20 @@ def train_bootstrap(
     config: AppConfig | None = None,
     output_dir: str | Path = "artifacts/bootstrap",
     config_path: str = "configs/default.toml",
+    progress_callback: ProgressCallback | None = None,
 ) -> dict[str, float | int | str]:
     config = config or load_config()
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     progress_path = output_path / "progress.json"
-    _write_json(progress_path, {"stage": "starting"})
+    _emit_progress(progress_path, progress_callback, {"stage": "starting"})
 
-    examples = generate_bootstrap_examples_with_progress(config, progress_path)
+    examples = generate_bootstrap_examples_with_progress(config, progress_path, progress_callback)
     dataset = BootstrapDataset(examples, config)
     loader = DataLoader(dataset, batch_size=config.training.batch_size, shuffle=True)
-    _write_json(
+    _emit_progress(
         progress_path,
+        progress_callback,
         {
             "stage": "dataset_ready",
             "examples": len(examples),
@@ -187,8 +195,9 @@ def train_bootstrap(
             f"policy_loss={history[-1]['policy_loss']:.4f} "
             f"value_loss={history[-1]['value_loss']:.4f}"
         )
-        _write_json(
+        _emit_progress(
             progress_path,
+            progress_callback,
             {
                 "stage": "training",
                 "epoch": epoch + 1,
@@ -219,7 +228,7 @@ def train_bootstrap(
 
     with (output_path / "metrics.json").open("w", encoding="ascii") as handle:
         json.dump(metrics, handle, indent=2)
-    _write_json(progress_path, {"stage": "complete", **metrics})
+    _emit_progress(progress_path, progress_callback, {"stage": "complete", **metrics})
 
     return metrics
 
@@ -233,3 +242,14 @@ def _select_device(config: AppConfig) -> torch.device:
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     with path.open("w", encoding="ascii") as handle:
         json.dump(payload, handle, indent=2)
+
+
+def _emit_progress(
+    progress_path: Path | None,
+    progress_callback: ProgressCallback | None,
+    payload: dict[str, object],
+) -> None:
+    if progress_path is not None:
+        _write_json(progress_path, payload)
+    if progress_callback is not None:
+        progress_callback(payload)

@@ -18,6 +18,7 @@ The current bridge is:
 - stdout logs in the notebook,
 - `progress.json` written into the output artifact folder,
 - `metrics.json` and model checkpoints saved to disk,
+- `status/latest.json` plus per-run status files on the `colab-status` branch,
 - optional copy-back into Google Drive.
 
 If tighter integration is needed later, build it as an explicit file-based or API-based
@@ -29,6 +30,23 @@ bridge rather than assuming hidden shared session access.
 - Fast profile at `configs/fast.toml`.
 - Medium profile at `configs/colab.toml`.
 - Colab notebook at `notebooks/hex6_colab_fast_bootstrap.ipynb`.
+- Local watcher at `python -m hex6.integration.watch_status`.
+
+## One-time GitHub status setup
+
+For the notebook to publish run status back into the repository, add a fine-grained GitHub
+token to Colab secrets:
+
+1. Create a fine-grained token with `Contents: Read and write` access to
+   `Stroudmj00/hex6-bot`.
+2. In Colab, open the secrets panel.
+3. Add a secret named `HEX6_GITHUB_TOKEN`.
+
+The token is not stored in this repository. The notebook loads it from Colab secrets at
+runtime.
+
+If the secret is absent, the notebook still runs training but disables GitHub status
+publishing for that run.
 
 ## Recommended first run
 
@@ -54,6 +72,11 @@ This is not the final bot. It is the shortest path to a working training loop.
 2. Open `notebooks/hex6_colab_fast_bootstrap.ipynb` in Colab.
 3. Set `REPO_MODE = "git"` and use `https://github.com/Stroudmj00/hex6-bot.git`.
 4. Run the notebook cells.
+5. In a local terminal, watch status with:
+
+```powershell
+.venv\Scripts\python -m hex6.integration.watch_status --config configs/colab.toml --run-id latest
+```
 
 ### Option 2: From Google Drive
 
@@ -76,6 +99,8 @@ python -m hex6.train.run_bootstrap --config configs/colab.toml --output artifact
 
 - copies the resulting artifacts back to Drive if Drive mode is enabled.
 - writes progress to `artifacts/bootstrap_colab/progress.json`.
+- writes a GitHub-backed status document to the `colab-status` branch when
+  `HEX6_GITHUB_TOKEN` is available.
 
 ## Current local validation
 
