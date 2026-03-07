@@ -33,6 +33,7 @@ for GPU ML packages.
 - `docs/roadmap.md`: staged implementation plan.
 - `docs/5-hour-sprint.md`: time-boxed execution plan with feedback checkpoints.
 - `docs/colab.md`: Colab setup and training flow.
+- `docs/project-memory.md`: persistent project assumptions and operating constraints.
 - `src/hex6/web/`: local website and API for human-vs-bot play.
 - `src/hex6/prototype/candidate_explorer.py`: importable exploration module.
 

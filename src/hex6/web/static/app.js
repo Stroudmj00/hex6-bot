@@ -19,7 +19,6 @@ let payload = null;
 let selectedCells = [];
 let camera = { x: 0, y: 0 };
 let pointerState = null;
-let suppressClick = false;
 
 newXButton.addEventListener("click", () => newGame("x"));
 newOButton.addEventListener("click", () => newGame("o"));
@@ -79,12 +78,15 @@ function clearSelection() {
 }
 
 function startPan(event) {
+  const svgPoint = clientToSvgPoint(event.clientX, event.clientY);
   pointerState = {
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
     lastX: event.clientX,
     lastY: event.clientY,
+    startSvgX: svgPoint.x,
+    startSvgY: svgPoint.y,
     moved: false,
   };
   board.setPointerCapture(event.pointerId);
@@ -99,6 +101,9 @@ function continuePan(event) {
   const dy = event.clientY - pointerState.lastY;
   pointerState.lastX = event.clientX;
   pointerState.lastY = event.clientY;
+  const rect = board.getBoundingClientRect();
+  const scaleX = VIEWBOX.width / rect.width;
+  const scaleY = VIEWBOX.height / rect.height;
 
   if (!pointerState.moved) {
     const totalDx = event.clientX - pointerState.startX;
@@ -107,9 +112,8 @@ function continuePan(event) {
   }
 
   if (pointerState.moved) {
-    camera.x += dx;
-    camera.y += dy;
-    suppressClick = true;
+    camera.x += dx * scaleX;
+    camera.y += dy * scaleY;
     renderBoard();
   }
 }
@@ -119,16 +123,15 @@ function endPan(event) {
     return;
   }
   board.releasePointerCapture(event.pointerId);
+  const moved = pointerState.moved;
   pointerState = null;
-  if (suppressClick) {
-    window.setTimeout(() => {
-      suppressClick = false;
-    }, 0);
+  if (!moved && event.type === "pointerup") {
+    handleBoardTap(event);
   }
 }
 
 function toggleCell(cell) {
-  if (!payload || payload.state.winner || suppressClick) {
+  if (!payload || payload.state.winner) {
     return;
   }
 
@@ -153,6 +156,19 @@ function toggleCell(cell) {
   selectedCells.push({ q: cell.q, r: cell.r });
   renderSelection();
   renderBoard();
+}
+
+function handleBoardTap(event) {
+  if (!payload) {
+    return;
+  }
+  const point = clientToSvgPoint(event.clientX, event.clientY);
+  const axial = pixelToAxial(
+    point.x - VIEWBOX.width / 2 - camera.x,
+    point.y - VIEWBOX.height / 2 - camera.y,
+  );
+  const rounded = axialRound(axial.q, axial.r);
+  toggleCell(rounded);
 }
 
 function render() {
@@ -238,9 +254,6 @@ function renderBoard() {
     }
     group.setAttribute("class", classes.join(" "));
     group.setAttribute("transform", `translate(${point.x}, ${point.y})`);
-    if (!occupant) {
-      group.addEventListener("click", () => toggleCell(cell));
-    }
 
     const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
     polygon.setAttribute("points", hexPoints(HEX_RADIUS));
@@ -298,6 +311,14 @@ function pixelToAxial(x, y) {
   const q = (Math.sqrt(3) / 3 * x - 1 / 3 * y) / HEX_SPACING;
   const r = (2 / 3 * y) / HEX_SPACING;
   return { q, r };
+}
+
+function clientToSvgPoint(clientX, clientY) {
+  const rect = board.getBoundingClientRect();
+  return {
+    x: ((clientX - rect.left) / rect.width) * VIEWBOX.width,
+    y: ((clientY - rect.top) / rect.height) * VIEWBOX.height,
+  };
 }
 
 function axialRound(q, r) {

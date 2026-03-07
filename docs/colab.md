@@ -5,6 +5,24 @@
 Run the same bootstrap flow in Google Colab so training can use a hosted GPU while the
 codebase stays local-friendly.
 
+## Integration boundary
+
+This project should assume:
+
+- Colab is a separate runtime,
+- local Codex work cannot directly inspect or control a live Colab session,
+- synchronization must happen through explicit artifacts, repository commits, or Drive files.
+
+The current bridge is:
+
+- stdout logs in the notebook,
+- `progress.json` written into the output artifact folder,
+- `metrics.json` and model checkpoints saved to disk,
+- optional copy-back into Google Drive.
+
+If tighter integration is needed later, build it as an explicit file-based or API-based
+bridge rather than assuming hidden shared session access.
+
 ## What is ready
 
 - Config-selectable bootstrap CLI.

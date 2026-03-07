@@ -13,6 +13,21 @@ The current target is the `6 in a row` hexagonal variant described in the linked
 These rules are still stored in config so we can change them later without refactoring the
  codebase.
 
+## Representation decision
+
+For learning and dataset generation, positions should be translation-normalized so that the
+first played stone becomes `(0, 0)`.
+
+This should be treated as a representation choice, not a rule change:
+
+- the legal game remains an infinite sparse board,
+- the engine may still store absolute coordinates internally,
+- but training data, hashing, and model inputs should use a canonical translated frame when
+  practical.
+
+The website now follows this display convention by treating the first played stone as the
+session origin.
+
 ## Why this game is hard
 
 - A two-stone turn explodes the action space.
@@ -82,4 +97,3 @@ The current prototype should combine several candidate sources:
 - How reliable is globally dead-cell pruning once the board becomes large and noisy?
 - Can a compact policy/value net learn to propose nonlocal strategic seeds early enough to
   reduce search cost?
-
