@@ -30,7 +30,7 @@ This is not the final bot. It is the shortest path to a working training loop.
 
 1. Push this repository to GitHub.
 2. Open `notebooks/hex6_colab_fast_bootstrap.ipynb` in Colab.
-3. Set `REPO_MODE = "git"` and fill in your repo URL.
+3. Set `REPO_MODE = "git"` and use `https://github.com/Stroudmj00/hex6-bot.git`.
 4. Run the notebook cells.
 
 ### Option 2: From Google Drive
@@ -66,4 +66,3 @@ The fast profile already completed locally and produced:
 Colab will accelerate the model training and later batched inference, but pure Python
 self-play/search is still the main cost right now. The next optimization pass should reduce
 search cost before we scale up training volume.
-
