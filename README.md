@@ -91,6 +91,10 @@ run in Colab.
 .venv\Scripts\python -m hex6.integration.run_priority_loop --queue configs/colab_job_queue.toml --state artifacts/colab_queue/state.json --status-backend github_branch
 ```
 
+The Colab notebook prints repo freshness metadata (`head_short`, commit
+timestamps, latest-`origin/main` check) and writes the same data to
+`repo_version.json` in the output folder for each run.
+
 ## Colab search-matrix run
 
 ```powershell

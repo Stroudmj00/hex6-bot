@@ -100,6 +100,8 @@ Runtime safety defaults:
 
 - `REQUIRE_COLAB = True` to fail fast outside Colab.
 - `REQUIRE_GPU = True` to fail fast when no CUDA GPU is attached.
+- `EXPECTED_BRANCH = "main"` and `ENFORCE_LATEST_MAIN = True` to verify the
+  runtime repository is at latest `origin/main` before launching jobs.
 
 ### Option 2: From Google Drive
 
@@ -147,6 +149,9 @@ python -m hex6.integration.run_priority_loop --queue configs/colab_job_queue.tom
 - writes `arena.json` and `elo_history.json` when evaluation is enabled.
 - writes `summary.json` for search-matrix and tournament eval jobs.
 - for priority-loop mode, writes queue state to `artifacts/colab_queue/state.json`.
+- prints and writes repository version metadata (`head`, `head_short`,
+  `head_commit_utc`, notebook `last_modified_utc`, remote head comparison) to
+  `repo_version.json` in the selected output directory.
 
 ## Priority Queue Mode
 
