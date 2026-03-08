@@ -22,6 +22,31 @@ python -m pip install -e .[dev]
 `3.11` is intentional because the current machine also has `3.14`, which is a poor default
 for GPU ML packages.
 
+## AI agent quickstart
+
+- Agent contract and invariants: `AGENTS.md`
+- Task-specific edit/test recipes: `docs/ai-agent-workflows.md`
+- Multi-agent orchestration setup: `docs/codex-orchestration.md`
+- Executive status snapshot (including Elo-over-time trend): `docs/executive-review.md`
+- Canonical command reference: `docs/tools.md`
+
+Recommended pre-change check:
+
+```powershell
+.venv\Scripts\ruff check .
+.venv\Scripts\python -m pytest
+```
+
+Lightweight local background setup (Colab watch + local web app):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup_automation_tasks.ps1
+```
+
+This removes the legacy heavy local automation and installs Startup launchers
+for `watch_status` plus the local website. Heavy training/eval is intended to
+run in Colab.
+
 ## Repository map
 
 - `configs/default.toml`: game, search, training, and prototype assumptions.
@@ -59,6 +84,42 @@ for GPU ML packages.
 ```powershell
 .venv\Scripts\python -m hex6.train.run_cycle --config configs/colab_hour.toml --output-root artifacts/bootstrap_colab_hour --minutes 60
 ```
+
+## Colab priority queue loop
+
+```powershell
+.venv\Scripts\python -m hex6.integration.run_priority_loop --queue configs/colab_job_queue.toml --state artifacts/colab_queue/state.json --status-backend github_branch
+```
+
+## Colab search-matrix run
+
+```powershell
+.venv\Scripts\python -m hex6.eval.run_search_matrix --matrix configs/experiments/search_matrix.toml --output artifacts/search_matrix_colab --run-id colab-search-matrix --status-backend github_branch
+```
+
+## Colab tournament run
+
+```powershell
+.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/colab_latest --games-per-match 2 --max-game-plies 48 --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id colab-tournament --status-backend github_branch
+```
+
+## Competitive tournament eval
+
+```powershell
+.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/latest --games-per-match 2 --max-game-plies 48 --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random
+```
+
+## Benchmark local runtime
+
+```powershell
+.venv\Scripts\python -m hex6.train.benchmark_runtime --config configs/default.toml --output artifacts/runtime_benchmark
+```
+
+Current best-known local training setting on this machine is:
+- `runtime.cpu_threads = 12`
+- `runtime.interop_threads = 2`
+- `training.self_play_workers = 4`
+- `training.data_loader_workers = 0`
 
 ## Watch Colab status
 

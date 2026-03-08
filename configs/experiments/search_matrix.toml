@@ -1,5 +1,9 @@
 base_config = "../play.toml"
-games = 4
+games = 6
+opening_suite = "opening_suite.toml"
+
+[base_overrides.evaluation]
+max_game_plies = 80
 
 [[variants]]
 name = "candidate_edge"

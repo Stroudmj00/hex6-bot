@@ -34,9 +34,11 @@ def test_load_config_with_overrides_returns_typed_config() -> None:
 
 def test_load_search_matrix_uses_matrix_relative_base_path() -> None:
     matrix_path = Path("configs/experiments/search_matrix.toml")
-    base_config, games, variants = load_search_matrix(matrix_path)
+    spec = load_search_matrix(matrix_path)
 
     assert resolved_base_config_path(matrix_path, "../play.toml").name == "play.toml"
-    assert base_config.search.algorithm == "baseline_play"
-    assert games == 4
-    assert len(variants) == 6
+    assert spec.base_config.search.algorithm == "baseline_play"
+    assert spec.base_config.evaluation.max_game_plies == 80
+    assert spec.games == 6
+    assert len(spec.variants) == 6
+    assert len(spec.opening_suite) == 6

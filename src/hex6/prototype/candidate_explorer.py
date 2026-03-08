@@ -7,13 +7,49 @@ importable and configurable while we learn more about the game.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable, Literal
 
 from hex6.config import AppConfig
-from hex6.game.axial import LINE_AXES, Coord, hex_distance, line_cells, min_distance_to_any
+from hex6.game.axial import (
+    AXIAL_DIRECTIONS,
+    Coord,
+    add_coords,
+    hex_distance,
+    line_cells,
+    min_distance_to_any,
+)
 from hex6.game.state import GameState
 
 Player = Literal["x", "o"]
+
+
+@lru_cache(maxsize=512)
+def _windows_for_bounds(
+    min_q: int,
+    max_q: int,
+    min_r: int,
+    max_r: int,
+    win_length: int,
+) -> tuple[tuple[Coord, ...], ...]:
+    windows: list[tuple[Coord, ...]] = []
+    q_limit = max_q - win_length + 1
+    r_limit = max_r - win_length + 1
+    diagonal_min_r = min_r + win_length - 1
+
+    for q in range(min_q, q_limit + 1):
+        for r in range(min_r, max_r + 1):
+            windows.append(line_cells((q, r), (1, 0), win_length))
+
+    for q in range(min_q, max_q + 1):
+        for r in range(min_r, r_limit + 1):
+            windows.append(line_cells((q, r), (0, 1), win_length))
+
+    for q in range(min_q, q_limit + 1):
+        for r in range(diagonal_min_r, max_r + 1):
+            windows.append(line_cells((q, r), (1, -1), win_length))
+
+    return tuple(windows)
 
 
 @dataclass(frozen=True)
@@ -88,24 +124,26 @@ class SparsePosition:
             for r in range(min_r - margin, max_r + margin + 1)
         }
 
-    def windows_in_scope(self, config: AppConfig) -> list[tuple[Coord, ...]]:
-        cells = self.analysis_cells(config)
-        min_q = min(cell[0] for cell in cells)
-        max_q = max(cell[0] for cell in cells)
-        min_r = min(cell[1] for cell in cells)
-        max_r = max(cell[1] for cell in cells)
-        windows: list[tuple[Coord, ...]] = []
-        win_length = config.game.win_length
+    def windows_in_scope(self, config: AppConfig) -> tuple[tuple[Coord, ...], ...]:
+        if not self.stones:
+            origin_margin = max(config.prototype.analysis_margin, config.game.win_length)
+            return _windows_for_bounds(
+                -origin_margin,
+                origin_margin,
+                -origin_margin,
+                origin_margin,
+                config.game.win_length,
+            )
 
-        for direction in LINE_AXES:
-            for q in range(min_q, max_q + 1):
-                for r in range(min_r, max_r + 1):
-                    start = (q, r)
-                    window = line_cells(start, direction, win_length)
-                    if all(cell in cells for cell in window):
-                        windows.append(window)
-
-        return windows
+        min_q, max_q, min_r, max_r = self.occupied_bounds()
+        margin = config.prototype.outer_search_margin
+        return _windows_for_bounds(
+            min_q - margin,
+            max_q + margin,
+            min_r - margin,
+            max_r + margin,
+            config.game.win_length,
+        )
 
     def summarize_window(self, window: tuple[Coord, ...], player: Player) -> WindowSummary:
         opponent = self.opponent(player)
@@ -169,12 +207,23 @@ class SparsePosition:
     def candidate_scores(self, config: AppConfig, player: Player | None = None) -> list[CandidateScore]:
         player = player or self.to_play
         opponent = self.opponent(player)
-        windows = self.windows_in_scope(config)
-        player_windows = self.open_windows_from_scope(windows, player)
-        opponent_windows = self.open_windows_from_scope(windows, opponent)
-        live = self.live_cells_from_windows(windows)
+        windows = tuple(self.windows_in_scope(config))
+        analysis_cells = self.analysis_cells(config)
+        empty_cells = {cell for cell in analysis_cells if self.empty(cell)}
+
+        player_counts = self._open_window_features(windows, player, empty_cells, config.heuristic.alignment_weights)
+        opponent_counts = self._open_window_features(
+            windows,
+            opponent,
+            empty_cells,
+            config.heuristic.enemy_alignment_weights,
+        )
+        live = {
+            player: set(player_counts["open_windows"]),
+            opponent: set(opponent_counts["open_windows"]),
+        }
         dead = (
-            {cell for cell in self.analysis_cells(config) if self.empty(cell)} - live["x"] - live["o"]
+            empty_cells - live["x"] - live["o"]
             if config.prototype.prune_globally_dead_cells
             else set()
         )
@@ -200,26 +249,24 @@ class SparsePosition:
 
         scored: list[CandidateScore] = []
         occupied = self.occupied
+        occupied_set = set(occupied)
+        frontier_contacts = self._frontier_contact_counts(candidates, occupied_set)
+        neighbor_counts = self._neighbor_counts_for_space(candidates, occupied_set)
 
         for cell in sorted(candidates):
-            frontier_contacts = self.frontier_contact_count(cell)
-            friendly_windows = [window for window in player_windows if cell in window.cells]
-            enemy_windows = [window for window in opponent_windows if cell in window.cells]
-            best_friendly_alignment = max((window.friendly_count for window in friendly_windows), default=0)
-            best_enemy_alignment = max((window.friendly_count for window in enemy_windows), default=0)
-            friendly_pressure = sum(
-                config.heuristic.alignment_weights[window.friendly_count] for window in friendly_windows
-            )
-            enemy_pressure = sum(
-                config.heuristic.enemy_alignment_weights[window.friendly_count] for window in enemy_windows
-            )
-            intersection_count = len(friendly_windows) + len(enemy_windows)
+            friendly_window_count = player_counts["counts"].get(cell, 0)
+            enemy_window_count = opponent_counts["counts"].get(cell, 0)
+            best_friendly_alignment = player_counts["best_alignment"].get(cell, 0)
+            best_enemy_alignment = opponent_counts["best_alignment"].get(cell, 0)
+            friendly_pressure = player_counts["pressure"].get(cell, 0.0)
+            enemy_pressure = opponent_counts["pressure"].get(cell, 0.0)
+            intersection_count = friendly_window_count + enemy_window_count
             island_bonus = self.island_bonus(config, cell, occupied)
-            space_bonus = self.space_bonus(config, cell)
+            space_bonus = float(max(0.0, 4.0 - neighbor_counts.get(cell, 0)))
             total = (
-                frontier_contacts * config.scoring.frontier
-                + len(friendly_windows) * config.scoring.friendly_open_window
-                + len(enemy_windows) * config.scoring.enemy_open_window
+                frontier_contacts.get(cell, 0) * config.scoring.frontier
+                + friendly_window_count * config.scoring.friendly_open_window
+                + enemy_window_count * config.scoring.enemy_open_window
                 + best_friendly_alignment * config.scoring.friendly_alignment
                 + best_enemy_alignment * config.scoring.enemy_alignment
                 + friendly_pressure
@@ -231,9 +278,9 @@ class SparsePosition:
             scored.append(
                 CandidateScore(
                     cell=cell,
-                    frontier_contacts=frontier_contacts,
-                    friendly_open_windows=len(friendly_windows),
-                    enemy_open_windows=len(enemy_windows),
+                    frontier_contacts=frontier_contacts.get(cell, 0),
+                    friendly_open_windows=friendly_window_count,
+                    enemy_open_windows=enemy_window_count,
                     best_friendly_alignment=best_friendly_alignment,
                     best_enemy_alignment=best_enemy_alignment,
                     friendly_pressure=round(friendly_pressure, 3),
@@ -247,6 +294,68 @@ class SparsePosition:
 
         scored.sort(key=lambda score: score.total, reverse=True)
         return scored
+
+    def _open_window_features(
+        self,
+        windows: Iterable[tuple[Coord, ...]],
+        player: Player,
+        empty_cells: set[Coord],
+        alignment_weights: tuple[float, ...],
+    ) -> dict[str, dict[Coord, float] | dict[Coord, int] | set[Coord]]:
+        windows = tuple(windows)
+        counts: dict[Coord, int] = {}
+        best_alignment: dict[Coord, int] = {}
+        pressure: dict[Coord, float] = {}
+        open_windows: set[Coord] = set()
+
+        for window in windows:
+            summary = self.summarize_window(window, player)
+            if summary.enemy_count != 0:
+                continue
+            weight = alignment_weights[summary.friendly_count]
+            for cell in summary.cells:
+                if cell not in empty_cells:
+                    continue
+                counts[cell] = counts.get(cell, 0) + 1
+                best_alignment[cell] = max(best_alignment.get(cell, 0), summary.friendly_count)
+                pressure[cell] = pressure.get(cell, 0.0) + weight
+                open_windows.add(cell)
+
+        return {
+            "counts": counts,
+            "best_alignment": best_alignment,
+            "pressure": pressure,
+            "open_windows": open_windows,
+        }
+
+    def _frontier_contact_counts(self, candidates: set[Coord], occupied: set[Coord]) -> dict[Coord, int]:
+        if not candidates or not occupied:
+            return {}
+
+        contacts: dict[Coord, int] = {cell: 0 for cell in candidates}
+        for occupied_cell in occupied:
+            for direction in AXIAL_DIRECTIONS:
+                candidate = add_coords(occupied_cell, direction)
+                if candidate in contacts:
+                    contacts[candidate] += 1
+        return contacts
+
+    def _neighbor_counts_for_space(self, candidates: set[Coord], occupied: Iterable[Coord]) -> dict[Coord, int]:
+        if not candidates:
+            return {}
+
+        neighbor_counts: dict[Coord, int] = {cell: 0 for cell in candidates}
+        occupied_cells = tuple(occupied)
+        if not occupied_cells:
+            return neighbor_counts
+
+        for candidate in neighbor_counts:
+            count = 0
+            for other in occupied_cells:
+                if other != candidate and hex_distance(other, candidate) <= 2:
+                    count += 1
+            neighbor_counts[candidate] = count
+        return neighbor_counts
 
     def top_first_stone_candidates(self, config: AppConfig, player: Player | None = None) -> list[CandidateScore]:
         return self.candidate_scores(config, player)[: config.prototype.first_stone_candidate_limit]

@@ -19,6 +19,10 @@ class RuntimeConfig:
     python_version: str
     preferred_device: str
     allow_cpu_fallback: bool
+    cpu_threads: int
+    interop_threads: int
+    enable_tf32: bool
+    cudnn_benchmark: bool
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,9 @@ class TrainingConfig:
     bootstrap_strategy: str
     symmetry_augmentation: bool
     mixed_precision: bool
+    self_play_workers: int
+    data_loader_workers: int
+    pin_memory: bool
     replay_buffer_size: int
     bootstrap_games: int
     max_game_plies: int

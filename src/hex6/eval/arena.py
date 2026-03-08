@@ -6,10 +6,13 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import random
 from typing import Callable
 
 from hex6.config import AppConfig
-from hex6.game import GameState, Player
+from hex6.game import AXIAL_DIRECTIONS, Coord, GameState, IllegalMoveError, Player, add_coords
+from hex6.eval.openings import OpeningScenario
+from hex6.prototype.candidate_explorer import SparsePosition
 from hex6.search import BaselineTurnSearch, ModelGuidedTurnSearch
 
 
@@ -24,8 +27,14 @@ class AgentSpec:
 
 
 @dataclass(frozen=True)
+class TurnCells:
+    cells: tuple[Coord, ...]
+
+
+@dataclass(frozen=True)
 class ArenaGameResult:
     game_index: int
+    opening_name: str | None
     x_agent: str
     o_agent: str
     winner: Player | None
@@ -43,14 +52,44 @@ def evaluate_checkpoint_against_baseline(
     output_dir: str | Path,
     progress_callback: ArenaProgressCallback | None = None,
 ) -> dict[str, object]:
+    return evaluate_checkpoint_against_opponent(
+        checkpoint_path=checkpoint_path,
+        config=config,
+        output_dir=output_dir,
+        opponent="baseline",
+        progress_callback=progress_callback,
+    )
+
+
+def evaluate_checkpoint_against_opponent(
+    checkpoint_path: str | Path,
+    config: AppConfig,
+    *,
+    output_dir: str | Path,
+    opponent: str,
+    opponent_checkpoint_path: str | Path | None = None,
+    random_seed: int = 0,
+    random_candidate_width: int = 24,
+    progress_callback: ArenaProgressCallback | None = None,
+) -> dict[str, object]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     model_agent = build_checkpoint_agent(checkpoint_path, config)
-    baseline_agent = build_baseline_agent()
+    if opponent == "baseline":
+        opponent_agent = build_baseline_agent()
+    elif opponent == "random":
+        opponent_agent = build_random_agent(seed=random_seed, candidate_width=random_candidate_width)
+    elif opponent == "checkpoint":
+        if opponent_checkpoint_path is None:
+            raise ValueError("opponent_checkpoint_path is required when opponent='checkpoint'")
+        opponent_agent = build_checkpoint_agent(opponent_checkpoint_path, config)
+    else:
+        raise ValueError(f"unsupported opponent kind: {opponent}")
+
     summary = run_arena(
         agent_a=model_agent,
-        agent_b=baseline_agent,
+        agent_b=opponent_agent,
         config=config,
         games=config.evaluation.arena_games,
         progress_callback=progress_callback,
@@ -74,6 +113,35 @@ def build_baseline_agent() -> AgentSpec:
     )
 
 
+def build_random_agent(
+    *,
+    seed: int = 0,
+    candidate_width: int = 24,
+    name: str = "random",
+) -> AgentSpec:
+    rng = random.Random(seed)
+    width = max(1, candidate_width)
+
+    def choose_turn(state: GameState, config: AppConfig) -> TurnCells:
+        if state.is_terminal:
+            raise IllegalMoveError("cannot choose random turn from a terminal position")
+
+        current = state
+        chosen: list[Coord] = []
+        while len(chosen) < state.placements_remaining and not current.is_terminal:
+            candidates = random_candidate_cells(current, config, width)
+            cell = candidates[rng.randrange(len(candidates))]
+            chosen.append(cell)
+            current = current.apply_placement(cell, config.game)
+        return TurnCells(cells=tuple(chosen))
+
+    return AgentSpec(
+        name=name,
+        kind="random",
+        choose_turn=choose_turn,
+    )
+
+
 def build_checkpoint_agent(checkpoint_path: str | Path, config: AppConfig) -> AgentSpec:
     search = ModelGuidedTurnSearch.from_checkpoint(checkpoint_path, config)
     return AgentSpec(
@@ -89,6 +157,7 @@ def run_arena(
     agent_b: AgentSpec,
     config: AppConfig,
     games: int,
+    opening_suite: list[OpeningScenario] | None = None,
     progress_callback: ArenaProgressCallback | None = None,
 ) -> dict[str, object]:
     rating_a = config.evaluation.initial_elo
@@ -104,7 +173,8 @@ def run_arena(
             if game_index % 2 == 0
             else {"x": agent_b, "o": agent_a}
         )
-        winner, plies = play_game(agents_by_player, config)
+        opening = opening_suite[game_index % len(opening_suite)] if opening_suite else None
+        winner, plies = play_game(agents_by_player, config, starting_state=opening.state if opening else None)
         score_a, score_b = score_agents(agent_a, agent_b, agents_by_player, winner)
         rating_a, rating_b = update_elo(
             rating_a,
@@ -122,6 +192,7 @@ def run_arena(
 
         result = ArenaGameResult(
             game_index=game_index + 1,
+            opening_name=opening.name if opening else None,
             x_agent=agents_by_player["x"].name,
             o_agent=agents_by_player["o"].name,
             winner=winner,
@@ -143,6 +214,7 @@ def run_arena(
                     "draws": draws,
                     "current_elo_a": result.a_rating,
                     "current_elo_b": result.b_rating,
+                    "opening_name": result.opening_name,
                 }
             )
 
@@ -170,8 +242,13 @@ def run_arena(
     return summary
 
 
-def play_game(agents_by_player: dict[Player, AgentSpec], config: AppConfig) -> tuple[Player | None, int]:
-    state = GameState.initial(config.game)
+def play_game(
+    agents_by_player: dict[Player, AgentSpec],
+    config: AppConfig,
+    *,
+    starting_state: GameState | None = None,
+) -> tuple[Player | None, int]:
+    state = starting_state or GameState.initial(config.game)
     while not state.is_terminal and state.ply_count < config.evaluation.max_game_plies:
         agent = agents_by_player[state.to_play]
         turn = agent.choose_turn(state, config)
@@ -194,6 +271,36 @@ def score_agents(
     if winner_agent == agent_a:
         return 1.0, 0.0
     return 0.0, 1.0
+
+
+def random_candidate_cells(state: GameState, config: AppConfig, width: int) -> list[Coord]:
+    if not state.stones and state.placements_remaining == 1:
+        return [(0, 0)]
+
+    position = SparsePosition.from_game_state(state)
+    scored = position.candidate_scores(config, state.to_play)
+    if scored:
+        limit = max(1, min(width, len(scored)))
+        return [entry.cell for entry in scored[:limit]]
+
+    empties = [cell for cell in position.analysis_cells(config) if state.is_empty(cell)]
+    if empties:
+        empties.sort()
+        return empties
+
+    frontier: set[Coord] = set()
+    for occupied in state.occupied:
+        for direction in AXIAL_DIRECTIONS:
+            candidate = add_coords(occupied, direction)
+            if state.is_empty(candidate):
+                frontier.add(candidate)
+    if frontier:
+        return sorted(frontier)
+
+    probe = (0, 0)
+    while not state.is_empty(probe):
+        probe = (probe[0] + 1, probe[1])
+    return [probe]
 
 
 def update_elo(rating_a: float, rating_b: float, score_a: float, k_factor: float) -> tuple[float, float]:

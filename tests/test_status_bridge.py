@@ -1,4 +1,5 @@
 from pathlib import Path
+from dataclasses import replace
 
 from hex6.config import load_config
 from hex6.integration.status import FileStatusTransport, RunContext, StatusPublisher
@@ -47,3 +48,28 @@ def test_train_bootstrap_reports_progress_callback(tmp_path: Path) -> None:
     assert events[0]["stage"] == "starting"
     assert events[-1]["stage"] == "complete"
     assert events[-1]["checkpoint"] == metrics["checkpoint"]
+    assert metrics["self_play_workers"] == config.training.self_play_workers
+    assert "self_play_seconds" in metrics
+
+
+def test_train_bootstrap_parallel_self_play_runs(tmp_path: Path) -> None:
+    config = load_config("configs/fast.toml")
+    config = replace(
+        config,
+        training=replace(
+            config.training,
+            bootstrap_games=2,
+            max_game_plies=6,
+            self_play_workers=2,
+            data_loader_workers=0,
+        ),
+    )
+
+    metrics = train_bootstrap(
+        config,
+        output_dir=tmp_path / "parallel-bootstrap",
+        config_path="configs/fast.toml",
+    )
+
+    assert metrics["examples"] > 0
+    assert metrics["self_play_workers"] == 2

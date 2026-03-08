@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 
 from hex6.config import load_config
-from hex6.eval import AgentSpec, run_arena
+from hex6.eval import AgentSpec, build_random_agent, run_arena
 from hex6.game import GameState
 from hex6.nn import HexPolicyValueNet
 from hex6.search import BaselineTurnSearch, ModelGuidedTurnSearch
@@ -55,3 +55,15 @@ def test_run_arena_tracks_results_and_elo() -> None:
     assert summary["wins_a"] + summary["wins_b"] + summary["draws"] == 2
     assert "final_elo_a" in summary
     assert "game_history" not in summary
+
+
+def test_random_agent_returns_legal_turn() -> None:
+    config = load_config("configs/fast.toml")
+    agent = build_random_agent(seed=3, candidate_width=8)
+    state = GameState.initial(config.game).apply_placement((0, 0), config.game)
+
+    turn = agent.choose_turn(state, config)
+
+    assert len(turn.cells) == state.placements_remaining
+    assert len(set(turn.cells)) == len(turn.cells)
+    assert all(state.is_empty(cell) for cell in turn.cells)

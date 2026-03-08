@@ -25,6 +25,8 @@ the working context.
   and saved checkpoints.
 - The primary live-status bridge is now the `colab-status` GitHub branch with machine-written
   JSON status files.
+- Heavy recurring training/eval should run in Colab when practical; the local machine should
+  default to `watch_status` plus the play website.
 - If tighter integration is needed later, it must be implemented as an explicit bridge,
   not assumed.
 

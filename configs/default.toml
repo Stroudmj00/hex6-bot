@@ -6,6 +6,10 @@ phase = "research"
 python_version = "3.11"
 preferred_device = "cuda"
 allow_cpu_fallback = true
+cpu_threads = 12
+interop_threads = 2
+enable_tf32 = true
+cudnn_benchmark = true
 
 [game]
 board_mode = "sparse_infinite"
@@ -41,6 +45,9 @@ shallow_reply_width = 6
 bootstrap_strategy = "search_supervision_then_self_play"
 symmetry_augmentation = true
 mixed_precision = true
+self_play_workers = 4
+data_loader_workers = 0
+pin_memory = true
 replay_buffer_size = 200000
 bootstrap_games = 8
 max_game_plies = 80

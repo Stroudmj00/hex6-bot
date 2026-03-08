@@ -1,0 +1,80 @@
+[[scenarios]]
+name = "o_must_block_horizontal"
+description = "O to play must answer X's five-stone horizontal threat."
+placements = [
+  [0, 0],
+  [10, 0], [11, 0],
+  [1, 0], [2, 0],
+  [10, 1], [11, 1],
+  [3, 0], [4, 0],
+]
+expected_to_play = "o"
+expected_placements_remaining = 2
+
+[[scenarios]]
+name = "x_can_finish_horizontal"
+description = "X to play has an immediate horizontal win."
+placements = [
+  [0, 0],
+  [10, 0], [11, 0],
+  [1, 0], [2, 0],
+  [10, 1], [11, 1],
+  [3, 0], [4, 0],
+  [10, 2], [11, 2],
+]
+expected_to_play = "x"
+expected_placements_remaining = 2
+
+[[scenarios]]
+name = "o_must_block_vertical"
+description = "O to play must answer X's five-stone vertical-axis threat."
+placements = [
+  [0, 0],
+  [8, 0], [8, 1],
+  [0, 1], [0, 2],
+  [9, 0], [9, 1],
+  [0, 3], [0, 4],
+]
+expected_to_play = "o"
+expected_placements_remaining = 2
+
+[[scenarios]]
+name = "x_can_finish_vertical"
+description = "X to play has an immediate vertical-axis win."
+placements = [
+  [0, 0],
+  [8, 0], [8, 1],
+  [0, 1], [0, 2],
+  [9, 0], [9, 1],
+  [0, 3], [0, 4],
+  [10, 0], [10, 1],
+]
+expected_to_play = "x"
+expected_placements_remaining = 2
+
+[[scenarios]]
+name = "o_must_block_diagonal"
+description = "O to play must answer X's five-stone diagonal threat."
+placements = [
+  [0, 0],
+  [7, 0], [7, 1],
+  [1, -1], [2, -2],
+  [8, 0], [8, 1],
+  [3, -3], [4, -4],
+]
+expected_to_play = "o"
+expected_placements_remaining = 2
+
+[[scenarios]]
+name = "x_can_finish_diagonal"
+description = "X to play has an immediate diagonal win."
+placements = [
+  [0, 0],
+  [7, 0], [7, 1],
+  [1, -1], [2, -2],
+  [8, 0], [8, 1],
+  [3, -3], [4, -4],
+  [9, 0], [9, 1],
+]
+expected_to_play = "x"
+expected_placements_remaining = 2
