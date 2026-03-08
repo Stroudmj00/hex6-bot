@@ -54,6 +54,8 @@ def test_run_arena_tracks_results_and_elo() -> None:
     assert summary["games"] == 2
     assert summary["wins_a"] + summary["wins_b"] + summary["draws"] == 2
     assert "final_elo_a" in summary
+    assert "draws_by_ply_cap" in summary
+    assert "avg_plies" in summary
     assert "game_history" not in summary
 
 

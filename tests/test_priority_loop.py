@@ -107,6 +107,7 @@ def test_build_job_command_tournament_includes_priority_settings() -> None:
             "max_game_plies": 100,
             "max_checkpoints": 3,
             "checkpoint_glob": "artifacts/**/bootstrap_model.pt",
+            "opening_suite": "configs/experiments/opening_suite.toml",
             "include_baseline": True,
             "include_random": False,
             "random_seed": 7,
@@ -123,6 +124,7 @@ def test_build_job_command_tournament_includes_priority_settings() -> None:
     joined = " ".join(command)
     assert "hex6.eval.run_tournament" in joined
     assert "--max-game-plies 100" in joined
+    assert "--opening-suite configs/experiments/opening_suite.toml" in joined
     assert "--status-backend github_branch" in joined
     assert "--no-include-random" in command
 

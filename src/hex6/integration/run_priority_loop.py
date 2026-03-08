@@ -250,6 +250,10 @@ def build_job_command(job: JobSpec, python_exe: str, run_id: str, status_backend
             "--status-backend",
             status_backend,
         ]
+        if "opening_suite" in o:
+            command.extend(["--opening-suite", str(o["opening_suite"])])
+        if bool(o.get("no_opening_suite", False)):
+            command.append("--no-opening-suite")
         include_baseline = bool(o.get("include_baseline", True))
         include_random = bool(o.get("include_random", True))
         if not include_baseline:

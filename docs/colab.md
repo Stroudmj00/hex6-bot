@@ -133,7 +133,7 @@ python -m hex6.eval.run_search_matrix --matrix configs/experiments/search_matrix
 ```
 
 ```bash
-python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament_colab --games-per-match 2 --max-game-plies 48 --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id <run-id> --status-backend github_branch
+python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament_colab --games-per-match 4 --max-game-plies 120 --opening-suite configs/experiments/opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id <run-id> --status-backend github_branch
 ```
 
 or (priority-scored queue loop):
@@ -164,7 +164,7 @@ the runner yields to the next-priority job.
 Default queue priorities:
 
 - `cycle_main`: `100`
-- `tournament_regression`: `80` (`max_game_plies = 100`)
+- `tournament_regression`: `80` (`max_game_plies = 120`, opening suite enabled)
 - `search_matrix_regression`: `65`
 - `bootstrap_refresh`: `50`
 

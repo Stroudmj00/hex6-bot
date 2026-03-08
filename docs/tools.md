@@ -44,7 +44,7 @@ continuous `elo_history.json` file for that lane of experiments.
 ### Round-robin tournament (baseline + random + latest checkpoints)
 
 ```powershell
-.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/latest --games-per-match 2 --max-game-plies 48 --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random
+.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/latest --games-per-match 4 --max-game-plies 120 --opening-suite configs/experiments/opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random
 ```
 
 ### Search variant matrix
@@ -159,7 +159,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_executive_revi
 ### Round-robin tournament with status publishing
 
 ```powershell
-.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/colab_latest --games-per-match 2 --max-game-plies 48 --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id colab-tournament --status-backend github_branch
+.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/colab_latest --games-per-match 4 --max-game-plies 120 --opening-suite configs/experiments/opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id colab-tournament --status-backend github_branch
 ```
 
 ### Priority-scored Colab GPU loop (recommended for always-on queueing)
@@ -169,4 +169,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_executive_revi
 ```
 
 The default queue includes explicit `priority` scores and runs tournament eval at
-`max_game_plies = 100` to reduce draw-cap artifacts.
+`max_game_plies = 120` with an opening suite to reduce draw-heavy symmetry.

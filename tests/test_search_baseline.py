@@ -83,11 +83,6 @@ def test_baseline_threat_search_forces_opponent_immediate_defense() -> None:
             (2, 0): "o",
             (3, 0): "o",
             (4, 0): "o",
-            (10, 0): "o",
-            (11, 0): "o",
-            (12, 0): "o",
-            (13, 0): "o",
-            (14, 0): "o",
         },
         to_play="x",
         placements_remaining=2,
@@ -97,7 +92,115 @@ def test_baseline_threat_search_forces_opponent_immediate_defense() -> None:
 
     turn = search.choose_turn(state, config)
 
-    assert turn.cells == ((5, 0), (15, 0))
+    assert turn.cells == ((-1, 0), (5, 0))
+    assert turn.reason == "forced_defense"
+
+
+def test_baseline_threat_search_finds_low_width_immediate_win() -> None:
+    config = load_config_with_overrides(
+        "configs/default.toml",
+        {
+            "search": {"tactical_solver": "threat_search", "shallow_reply_width": 1},
+            "prototype": {"first_stone_candidate_limit": 1, "second_stone_candidate_limit": 1},
+        },
+    )
+    search = BaselineTurnSearch()
+    state = GameState(
+        stones={
+            (-2, -2): "x",
+            (-2, 3): "o",
+            (-1, -3): "o",
+            (-1, 0): "o",
+            (-1, 1): "o",
+            (-1, 2): "o",
+            (-1, 3): "x",
+            (0, -3): "x",
+            (0, -2): "x",
+            (0, -1): "x",
+            (0, 0): "x",
+            (1, -1): "x",
+            (2, -1): "o",
+        },
+        to_play="o",
+        placements_remaining=2,
+        turn_index=8,
+        ply_count=13,
+    )
+
+    turn = search.choose_turn(state, config)
+
+    assert turn.cells == ((-1, -2), (-1, -1))
+    assert turn.reason == "immediate_win"
+
+
+def test_baseline_threat_search_finds_low_width_forced_block() -> None:
+    config = load_config_with_overrides(
+        "configs/default.toml",
+        {
+            "search": {"tactical_solver": "threat_search", "shallow_reply_width": 1},
+            "prototype": {"first_stone_candidate_limit": 1, "second_stone_candidate_limit": 1},
+        },
+    )
+    search = BaselineTurnSearch()
+    state = GameState(
+        stones={
+            (-4, 2): "o",
+            (-4, 3): "x",
+            (-4, 4): "x",
+            (-3, 2): "o",
+            (-3, 3): "x",
+            (-3, 4): "o",
+            (-2, 2): "o",
+            (-2, 3): "x",
+            (-1, 1): "o",
+            (-1, 3): "o",
+            (0, -1): "x",
+            (0, 0): "x",
+            (0, 1): "o",
+            (0, 2): "o",
+            (1, 0): "x",
+            (1, 1): "x",
+        },
+        to_play="x",
+        placements_remaining=1,
+        turn_index=9,
+        ply_count=16,
+    )
+
+    turn = search.choose_turn(state, config)
+
+    assert turn.cells == ((-1, 2),)
+    assert turn.reason == "forced_defense"
+
+
+def test_baseline_threat_search_returns_full_legal_turn_for_wider_turn_sizes() -> None:
+    config = load_config_with_overrides(
+        "configs/default.toml",
+        {
+            "game": {"turn_placements": 3},
+            "search": {"tactical_solver": "threat_search"},
+            "prototype": {"first_stone_candidate_limit": 1, "second_stone_candidate_limit": 1},
+        },
+    )
+    search = BaselineTurnSearch()
+    state = GameState(
+        stones={
+            (0, 0): "o",
+            (1, 0): "o",
+            (2, 0): "o",
+            (3, 0): "o",
+            (4, 0): "o",
+        },
+        to_play="x",
+        placements_remaining=3,
+        turn_index=7,
+        ply_count=12,
+    )
+
+    turn = search.choose_turn(state, config)
+
+    assert len(turn.cells) == 3
+    assert {(-1, 0), (5, 0)}.issubset(set(turn.cells))
     assert turn.reason == "forced_defense"
 
 
@@ -148,4 +251,4 @@ def test_baseline_heuristic_mode_uses_heuristic_search_path() -> None:
 
     turn = search.choose_turn(state, config)
 
-    assert turn.reason in {"reply_aware", "single_step_heuristic", "forced_defense"}
+    assert turn.reason in {"reply_aware", "single_step_heuristic"}

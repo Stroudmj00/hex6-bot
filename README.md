@@ -104,13 +104,13 @@ timestamps, latest-`origin/main` check) and writes the same data to
 ## Colab tournament run
 
 ```powershell
-.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/colab_latest --games-per-match 2 --max-game-plies 48 --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id colab-tournament --status-backend github_branch
+.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/colab_latest --games-per-match 4 --max-game-plies 120 --opening-suite configs/experiments/opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id colab-tournament --status-backend github_branch
 ```
 
 ## Competitive tournament eval
 
 ```powershell
-.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/latest --games-per-match 2 --max-game-plies 48 --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random
+.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/latest --games-per-match 4 --max-game-plies 120 --opening-suite configs/experiments/opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random
 ```
 
 ## Benchmark local runtime

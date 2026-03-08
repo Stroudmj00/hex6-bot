@@ -1,32 +1,32 @@
 # Executive Review
 
-- Generated (UTC): 2026-03-08T04:01:01Z
+- Generated (UTC): 2026-03-08T04:49:13Z
 - Goal: strongest practical Hex6 engine for https://www.youtube.com/watch?v=Ob6QINTMIOA&t=595s
 
 ## Snapshot
 
 | Metric | Value |
 |---|---|
-| Active run id | 20260307-205025 |
+| Active run id | 20260307-222348 |
 | Run state | running |
-| Run started (UTC) | 2026-03-08T02:50:25.8224196Z |
+| Run started (UTC) | 2026-03-08T04:23:48.6705283Z |
 | Planned run duration | 60 minutes |
 | Search latency before (ms/call) | n/a |
 | Search latency after (ms/call) | n/a |
 | Observed speedup | n/a |
-| Targeted validation tests | 21 passed |
-| Working-tree changed files (current) | 27 |
-| Diff shortstat |  27 files changed, 1079 insertions(+), 145 deletions(-) |
+| Targeted validation tests | n/a |
+| Working-tree changed files (current) | 13 |
+| Diff shortstat |  13 files changed, 381 insertions(+), 126 deletions(-) |
 | Elo source files | 5 |
 | Elo samples available | 4 |
 | Latest Elo | 1200 |
 | Latest win rate | 0.5 |
 | Earliest Elo timestamp (UTC) | 2026-03-07T21:52:24Z |
 | Latest Elo timestamp (UTC) | 2026-03-08T02:31:06Z |
-| Tournament participants | 3 |
+| Tournament participants | 5 |
 | Tournament leader | baseline |
-| Tournament leader points | 1 |
-| Tournament timestamp (UTC) | 2026-03-08T03:20:43Z |
+| Tournament leader points | 4 |
+| Tournament timestamp (UTC) | 2026-03-08T04:49:11Z |
 
 ## Graphs
 
@@ -34,16 +34,16 @@
 xychart-beta
 title "Current Diff Volume"
 x-axis ["Insertions", "Deletions"]
-y-axis "Lines" 0 --> 1090
-bar [1079, 145]
+y-axis "Lines" 0 --> 400
+bar [381, 126]
 ```
 
 ```mermaid
 xychart-beta
 title "Tournament Leaderboard Points"
-x-axis ["baseline", "random_seed_7", "cycle_002_bootstrap_model"]
-y-axis "Points" 0 --> 1.5
-bar [1, 1, 1]
+x-axis ["baseline", "random_seed_7", "cycle_002_bootstrap_model", "cycle_001_bootstrap_model", "bootstrap_fast_eval_bootstrap_model"]
+y-axis "Points" 0 --> 4.5
+bar [4, 4, 4, 4, 4]
 ```
 
 ```mermaid
@@ -83,21 +83,22 @@ line [0.5, 0.5, 0.5, 0.5]
 - Summary: `C:\Hexagonal tic tac toe\artifacts\tournament\latest\summary.json`
 | Rank | Agent | Kind | Points | Win Rate | W-L-D |
 |---:|---|---|---:|---:|---|
-| 1 | baseline | heuristic | 1 | 0.5 | 0-0-2 |
-| 2 | random_seed_7 | random | 1 | 0.5 | 0-0-2 |
-| 3 | cycle_002_bootstrap_model | model_guided | 1 | 0.5 | 0-0-2 |
+| 1 | baseline | heuristic | 4 | 0.5 | 0-0-8 |
+| 2 | random_seed_7 | random | 4 | 0.5 | 0-0-8 |
+| 3 | cycle_002_bootstrap_model | model_guided | 4 | 0.5 | 0-0-8 |
+| 4 | cycle_001_bootstrap_model | model_guided | 4 | 0.5 | 0-0-8 |
+| 5 | bootstrap_fast_eval_bootstrap_model | model_guided | 4 | 0.5 | 0-0-8 |
 
 ## Strongest Strengths
 
-- Focused engine/search regression tests passed (21 total in the targeted validation slice).
 - Multi-agent YOLO orchestration is running continuously with automated status/output capture.
 - Competitive benchmarking now includes random-opponent and multi-checkpoint tournament results.
 
 ## Best Opportunities
 
-- Add/enable configurable transposition-table reuse and add it to `choose_turn`/`worst_reply_score` in a config-gated, bounded way (currently `use_transposition_table` is mostly unused).
-- Add a dedicated regression test for `apply_cells` terminal-short-circuit semantics directly (not just via search path).
-- Add an evaluator-style benchmark command in CI loop with fixed seeds and capped plies to track node/time + Elo trend per commit.
+- Add state-signature caching across search and heuristic paths.
+- Improve runtime dispatch so config.search.algorithm drives actual engine selection.
+- Build a fast tactical benchmark path that always completes under 5 minutes.
 
 ## Operational Notes
 

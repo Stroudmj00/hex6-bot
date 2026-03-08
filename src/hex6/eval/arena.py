@@ -39,6 +39,8 @@ class ArenaGameResult:
     o_agent: str
     winner: Player | None
     plies: int
+    termination: str
+    reached_ply_cap: bool
     score_a: float
     score_b: float
     a_rating: float
@@ -166,6 +168,8 @@ def run_arena(
     wins_a = 0
     wins_b = 0
     draws = 0
+    draws_by_ply_cap = 0
+    total_plies = 0
 
     for game_index in range(games):
         agents_by_player = (
@@ -174,7 +178,11 @@ def run_arena(
             else {"x": agent_b, "o": agent_a}
         )
         opening = opening_suite[game_index % len(opening_suite)] if opening_suite else None
-        winner, plies = play_game(agents_by_player, config, starting_state=opening.state if opening else None)
+        winner, plies, termination = play_game(
+            agents_by_player,
+            config,
+            starting_state=opening.state if opening else None,
+        )
         score_a, score_b = score_agents(agent_a, agent_b, agents_by_player, winner)
         rating_a, rating_b = update_elo(
             rating_a,
@@ -182,6 +190,7 @@ def run_arena(
             score_a,
             config.evaluation.k_factor,
         )
+        total_plies += plies
 
         if score_a == 1.0:
             wins_a += 1
@@ -189,6 +198,8 @@ def run_arena(
             wins_b += 1
         else:
             draws += 1
+            if termination == "ply_cap":
+                draws_by_ply_cap += 1
 
         result = ArenaGameResult(
             game_index=game_index + 1,
@@ -197,6 +208,8 @@ def run_arena(
             o_agent=agents_by_player["o"].name,
             winner=winner,
             plies=plies,
+            termination=termination,
+            reached_ply_cap=(termination == "ply_cap"),
             score_a=score_a,
             score_b=score_b,
             a_rating=round(rating_a, 2),
@@ -212,6 +225,7 @@ def run_arena(
                     "wins_a": wins_a,
                     "wins_b": wins_b,
                     "draws": draws,
+                    "draws_by_ply_cap": draws_by_ply_cap,
                     "current_elo_a": result.a_rating,
                     "current_elo_b": result.b_rating,
                     "opening_name": result.opening_name,
@@ -220,6 +234,7 @@ def run_arena(
 
     score_total_a = wins_a + draws * 0.5
     score_total_b = wins_b + draws * 0.5
+    avg_plies = round(total_plies / max(games, 1), 2)
     summary: dict[str, object] = {
         "timestamp": utc_now(),
         "agent_a": {"name": agent_a.name, "kind": agent_a.kind},
@@ -236,6 +251,11 @@ def run_arena(
         "elo_delta_b": round(rating_b - config.evaluation.initial_elo, 2),
         "win_rate_a": round(score_total_a / max(games, 1), 3),
         "win_rate_b": round(score_total_b / max(games, 1), 3),
+        "draw_rate": round(draws / max(games, 1), 3),
+        "decisive_games": wins_a + wins_b,
+        "draws_by_ply_cap": draws_by_ply_cap,
+        "draws_non_ply_cap": max(0, draws - draws_by_ply_cap),
+        "avg_plies": avg_plies,
     }
     if config.evaluation.record_game_history:
         summary["game_history"] = [asdict(result) for result in results]
@@ -247,8 +267,10 @@ def play_game(
     config: AppConfig,
     *,
     starting_state: GameState | None = None,
-) -> tuple[Player | None, int]:
+) -> tuple[Player | None, int, str]:
     state = starting_state or GameState.initial(config.game)
+    if state.is_terminal:
+        return state.winner, state.ply_count, "terminal_start"
     while not state.is_terminal and state.ply_count < config.evaluation.max_game_plies:
         agent = agents_by_player[state.to_play]
         turn = agent.choose_turn(state, config)
@@ -256,7 +278,11 @@ def play_game(
             state = state.apply_placement(cell, config.game)
             if state.is_terminal:
                 break
-    return state.winner, state.ply_count
+    if state.is_terminal:
+        return state.winner, state.ply_count, "win"
+    if state.ply_count >= config.evaluation.max_game_plies:
+        return state.winner, state.ply_count, "ply_cap"
+    return state.winner, state.ply_count, "unknown"
 
 
 def score_agents(

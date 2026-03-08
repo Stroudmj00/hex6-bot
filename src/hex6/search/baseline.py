@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import combinations
 from typing import Any
 
 from hex6.config import AppConfig
@@ -27,10 +28,12 @@ class BaselineTurnSearch:
     def __init__(self) -> None:
         self._candidate_cache: dict[tuple[Any, ...], list[Any]] = {}
         self._evaluation_cache: dict[tuple[Any, ...], Any] = {}
+        self._immediate_turn_cache: dict[tuple[Any, ...], list[tuple[Coord, ...]]] = {}
 
     def clear_caches(self) -> None:
         self._candidate_cache.clear()
         self._evaluation_cache.clear()
+        self._immediate_turn_cache.clear()
 
     def choose_turn(self, state: GameState, config: AppConfig) -> ScoredTurn:
         if state.is_terminal:
@@ -136,9 +139,12 @@ class BaselineTurnSearch:
 
     def _choose_turn_with_threat_search(self, state: GameState, config: AppConfig) -> ScoredTurn:
         player = state.to_play
-        candidates = self._all_candidate_cells(state, config)
-
-        immediate_turns = self._find_immediate_turns(state, config, player, candidates)
+        immediate_turns = self._find_immediate_turns(
+            state,
+            config,
+            player,
+            state.placements_remaining,
+        )
         if immediate_turns:
             winning_cells = immediate_turns[0]
             return ScoredTurn(
@@ -149,24 +155,17 @@ class BaselineTurnSearch:
                 reason="immediate_win",
             )
 
-        all_turns = self._enumerate_turns(state, config, player, candidates=candidates)
-        if not all_turns:
-            raise IllegalMoveError("no legal turns found from the current state")
-
-        forced_defense: list[tuple[Coord, ...]] = []
         opponent = state.opponent()
-        opponent_start_state = self._as_player_state(state, opponent)
         opponent_immediate_turns = self._find_immediate_turns(
-            opponent_start_state, config, opponent, candidates
+            state,
+            config,
+            opponent,
+            config.game.turn_placements,
         )
-
         if opponent_immediate_turns:
-            for turn in all_turns:
-                if self._blocks_all_threats(turn, opponent_immediate_turns):
-                    forced_defense.append(turn)
-
-        if forced_defense:
-            return self._score_turns(state, config, player, forced_defense, reason="forced_defense")
+            forced_defense = self._defensive_turns(state, config, player, opponent_immediate_turns)
+            if forced_defense:
+                return self._score_turns(state, config, player, forced_defense, reason="forced_defense")
 
         return self._choose_turn_heuristic(state, config)
 
@@ -257,116 +256,136 @@ class BaselineTurnSearch:
 
         return turns
 
-    def _enumerate_turns(self, state: GameState, config: AppConfig, player: Player, candidates: tuple[Coord, ...]) -> list[tuple[Coord, ...]]:
-        turns: list[tuple[Coord, ...]] = []
-        seen: set[tuple[Coord, ...]] = set()
-
-        if state.placements_remaining == 1:
-            for first in candidates:
-                if first in state.stones:
-                    continue
-                turn = (first,)
-                if turn in seen:
-                    continue
-                seen.add(turn)
-                turns.append(turn)
-            return turns
-
-        for index, first in enumerate(candidates):
-            if first in state.stones:
-                continue
-            state_after_first = state.apply_placement(first, config.game)
-            if state_after_first.winner == player or state_after_first.to_play != player:
-                turn = (first,)
-                if turn not in seen:
-                    seen.add(turn)
-                    turns.append(turn)
-                continue
-
-            for second in candidates[index + 1 :]:
-                if second == first or second in state.stones:
-                    continue
-                try:
-                    state_after_second = state_after_first.apply_placement(second, config.game)
-                except IllegalMoveError:
-                    continue
-                cells = (first, second)
-                if state_after_second.winner == player or state_after_second.to_play != player:
-                    pass
-                if cells in seen:
-                    continue
-                seen.add(cells)
-                turns.append(tuple(sorted(cells)))
-
-        return turns
-
-    def _all_candidate_cells(self, state: GameState, config: AppConfig) -> tuple[Coord, ...]:
-        position = SparsePosition.from_game_state(state)
-        return tuple(sorted(cell for cell in position.analysis_cells(config) if state.is_empty(cell)))
-
     def _find_immediate_turns(
         self,
         state: GameState,
         config: AppConfig,
         player: Player,
-        candidates: tuple[Coord, ...],
+        placements_available: int,
     ) -> list[tuple[Coord, ...]]:
-        state_for_player = self._as_player_state(state, player)
-        if state.placements_remaining == 1:
-            immediate: list[tuple[Coord, ...]] = []
-            for cell in candidates:
-                if not state_for_player.is_empty(cell):
-                    continue
-                if state_for_player.apply_placement(cell, config.game).winner == player:
-                    immediate.append((cell,))
-            return immediate
+        key = (
+            "immediate_turns",
+            state.signature(),
+            player,
+            placements_available,
+            self._config_cache_key(config),
+        )
+        cached = self._immediate_turn_cache.get(key)
+        if cached is not None:
+            return cached
 
-        if state.placements_remaining != 2:
-            return []
-
+        position = SparsePosition.from_game_state(state)
         immediate: list[tuple[Coord, ...]] = []
-        for index, first in enumerate(candidates):
-            if not state_for_player.is_empty(first):
+        seen: set[tuple[Coord, ...]] = set()
+        for summary in position.open_windows(config, player):
+            if summary.empty_count == 0 or summary.empty_count > placements_available:
                 continue
-            state_after_first = state_for_player.apply_placement(first, config.game)
-            if state_after_first.winner == player:
-                immediate.append((first,))
+            cells = tuple(sorted(cell for cell in summary.cells if state.is_empty(cell)))
+            if cells in seen:
                 continue
-            for second in candidates[index + 1 :]:
-                if not state_after_first.is_empty(second):
-                    continue
-                if state_after_first.apply_placement(second, config.game).winner == player:
-                    immediate.append(tuple(sorted((first, second))))
+            seen.add(cells)
+            immediate.append(cells)
 
         immediate.sort(key=lambda cells: (len(cells), cells))
+        self._immediate_turn_cache[key] = immediate
         return immediate
 
-    def _as_player_state(self, state: GameState, player: Player) -> GameState:
-        if state.to_play == player:
-            return state
+    def _defensive_turns(
+        self,
+        state: GameState,
+        config: AppConfig,
+        player: Player,
+        threats: list[tuple[Coord, ...]],
+    ) -> list[tuple[Coord, ...]]:
+        critical_cells = sorted({cell for threat in threats for cell in threat if state.is_empty(cell)})
+        if not critical_cells:
+            return []
 
-        return GameState(
-            stones=state.stones,
-            to_play=player,
-            placements_remaining=state.placements_remaining,
-            turn_index=state.turn_index,
-            ply_count=state.ply_count,
-            winner=state.winner,
-            winning_line=state.winning_line,
-            move_history=state.move_history,
+        blocking_sets: list[tuple[Coord, ...]] = []
+        for size in range(1, min(len(critical_cells), state.placements_remaining) + 1):
+            size_matches: list[tuple[Coord, ...]] = []
+            for combo in combinations(critical_cells, size):
+                if self._blocks_all_threats(combo, threats):
+                    size_matches.append(combo)
+            if size_matches:
+                blocking_sets = size_matches
+                break
+
+        if not blocking_sets:
+            return []
+
+        turns: list[tuple[Coord, ...]] = []
+        seen: set[tuple[Coord, ...]] = set()
+        filler_pool = self._candidate_pool(state, config, player, critical_cells)
+        for combo in blocking_sets:
+            if len(combo) == state.placements_remaining:
+                ordered = tuple(sorted(combo))
+                if ordered not in seen:
+                    seen.add(ordered)
+                    turns.append(ordered)
+                continue
+
+            remaining_slots = state.placements_remaining - len(combo)
+            filler_candidates = [cell for cell in filler_pool if cell not in combo]
+            for fillers in combinations(filler_candidates, remaining_slots):
+                ordered = tuple(sorted(combo + fillers))
+                if ordered in seen:
+                    continue
+                seen.add(ordered)
+                turns.append(ordered)
+
+        return turns
+
+    def _candidate_pool(
+        self,
+        state: GameState,
+        config: AppConfig,
+        player: Player,
+        critical_cells: list[Coord],
+    ) -> list[Coord]:
+        position = SparsePosition.from_game_state(state)
+        ranked = [candidate.cell for candidate in self.top_candidates(state, config, player)]
+        frontier = sorted(
+            cell
+            for cell in position.frontier_cells(max(1, config.prototype.frontier_distance))
+            if state.is_empty(cell)
         )
+        extras = ranked + critical_cells + frontier
+        if len(extras) < max(4, len(critical_cells) + state.placements_remaining):
+            extras.extend(
+                cell
+                for cell in sorted(position.analysis_cells(config))
+                if state.is_empty(cell)
+            )
 
-    def _blocks_all_threats(self, turn: tuple[Coord, ...], threats: list[tuple[Coord, ...]]) -> bool:
-        for threat in threats:
-            if not any(cell in threat for cell in turn):
-                return False
-        return True
+        pool: list[Coord] = []
+        seen: set[Coord] = set()
+        for cell in extras:
+            if cell in seen:
+                continue
+            seen.add(cell)
+            pool.append(cell)
+        return pool
+
+    @staticmethod
+    def _blocks_all_threats(turn: tuple[Coord, ...], threats: list[tuple[Coord, ...]]) -> bool:
+        chosen = set(turn)
+        return all(any(cell in chosen for cell in threat) for threat in threats)
 
     def worst_reply_score(self, state: GameState, config: AppConfig, root_player: Player) -> float:
         if state.is_terminal:
             return self.evaluate_cached(state, config, root_player).total
 
         opponent = state.to_play
+        if config.search.tactical_solver == "threat_search":
+            immediate_replies = self._find_immediate_turns(
+                state,
+                config,
+                opponent,
+                state.placements_remaining,
+            )
+            if immediate_replies:
+                return -config.heuristic.terminal_score
         replies = self.enumerate_turns(
             state,
             config,
@@ -385,7 +404,7 @@ class BaselineTurnSearch:
         return worst
 
     def top_candidates(self, state: GameState, config: AppConfig, player: Player) -> list[Any]:
-        key = ("candidates", state.signature(), player)
+        key = ("candidates", state.signature(), player, self._config_cache_key(config))
         cached = self._candidate_cache.get(key)
         if cached is not None:
             return cached
@@ -396,7 +415,7 @@ class BaselineTurnSearch:
         return scored
 
     def evaluate_cached(self, state: GameState, config: AppConfig, player: Player) -> Any:
-        key = ("evaluation", state.signature(), player)
+        key = ("evaluation", state.signature(), player, self._config_cache_key(config))
         cached = self._evaluation_cache.get(key)
         if cached is not None:
             return cached
@@ -404,6 +423,16 @@ class BaselineTurnSearch:
         evaluation = evaluate_state(state, config, player)
         self._evaluation_cache[key] = evaluation
         return evaluation
+
+    @staticmethod
+    def _config_cache_key(config: AppConfig) -> tuple[Any, ...]:
+        return (
+            config.game,
+            config.prototype,
+            config.scoring,
+            config.heuristic,
+            config.search,
+        )
 
     @staticmethod
     def apply_cells(state: GameState, cells: tuple[Coord, ...], config: AppConfig) -> GameState:

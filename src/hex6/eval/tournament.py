@@ -18,6 +18,7 @@ from hex6.eval.arena import (
     build_random_agent,
     run_arena,
 )
+from hex6.eval.openings import OpeningScenario
 from hex6.search.model_guided import load_checkpoint_metadata
 
 
@@ -47,6 +48,8 @@ def discover_checkpoints(pattern: str, *, max_checkpoints: int) -> list[Path]:
         paths.append(resolved)
 
     paths.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    if max_checkpoints == 0:
+        return []
     if max_checkpoints > 0:
         return paths[:max_checkpoints]
     return paths
@@ -135,6 +138,7 @@ def run_round_robin_tournament(
     games_per_match: int,
     output_dir: str | Path,
     max_game_plies: int | None = None,
+    opening_suite: list[OpeningScenario] | None = None,
     progress_callback: TournamentProgressCallback | None = None,
 ) -> dict[str, object]:
     if len(participants) < 2:
@@ -154,6 +158,10 @@ def run_round_robin_tournament(
             record_game_history=True,
         ),
     )
+
+    effective_games_per_match = max(1, games_per_match)
+    if opening_suite and effective_games_per_match < len(opening_suite):
+        effective_games_per_match = len(opening_suite)
 
     scoreboard: dict[str, dict[str, object]] = {
         participant.name: {
@@ -178,7 +186,8 @@ def run_round_robin_tournament(
             agent_a=participant_a.agent,
             agent_b=participant_b.agent,
             config=arena_config,
-            games=games_per_match,
+            games=effective_games_per_match,
+            opening_suite=opening_suite,
         )
         game_history = summary.get("game_history", [])
         plies = [entry["plies"] for entry in game_history if isinstance(entry.get("plies"), int)]
@@ -192,6 +201,9 @@ def run_round_robin_tournament(
             "wins_a": summary["wins_a"],
             "wins_b": summary["wins_b"],
             "draws": summary["draws"],
+            "draws_by_ply_cap": summary["draws_by_ply_cap"],
+            "draws_non_ply_cap": summary["draws_non_ply_cap"],
+            "draw_rate": summary["draw_rate"],
             "score_a": summary["score_a"],
             "score_b": summary["score_b"],
             "win_rate_a": summary["win_rate_a"],
@@ -226,6 +238,7 @@ def run_round_robin_tournament(
                     "wins_a": summary["wins_a"],
                     "wins_b": summary["wins_b"],
                     "draws": summary["draws"],
+                    "draws_by_ply_cap": summary["draws_by_ply_cap"],
                     "leader": current_leader,
                 }
             )
@@ -236,10 +249,17 @@ def run_round_robin_tournament(
         reverse=True,
     )
 
+    total_games = sum(int(match["games"]) for match in matches)
+    total_draws = sum(int(match["draws"]) for match in matches)
+    total_draws_by_ply_cap = sum(int(match["draws_by_ply_cap"]) for match in matches)
+    total_decisive_games = max(0, total_games - total_draws)
+
     summary = {
         "timestamp": utc_now(),
-        "games_per_match": games_per_match,
+        "requested_games_per_match": games_per_match,
+        "games_per_match": effective_games_per_match,
         "max_game_plies": arena_config.evaluation.max_game_plies,
+        "opening_suite_size": len(opening_suite) if opening_suite else 0,
         "participants": [
             {
                 "name": participant.name,
@@ -250,6 +270,11 @@ def run_round_robin_tournament(
             for participant in participants
         ],
         "matches": matches,
+        "total_games": total_games,
+        "total_draws": total_draws,
+        "total_draws_by_ply_cap": total_draws_by_ply_cap,
+        "total_decisive_games": total_decisive_games,
+        "draw_rate": round(total_draws / max(total_games, 1), 3),
         "leaderboard": leaderboard,
         "leader": leaderboard[0]["name"] if leaderboard else None,
     }
