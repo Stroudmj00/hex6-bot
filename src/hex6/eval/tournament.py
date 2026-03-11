@@ -10,16 +10,18 @@ from pathlib import Path
 import json
 from typing import Callable, Iterable
 
-from hex6.config import AppConfig, load_config
+from hex6.config import AppConfig
 from hex6.eval.arena import (
     AgentSpec,
     build_baseline_agent,
     build_checkpoint_agent,
+    build_checkpoint_load_config,
+    build_evaluation_config,
     build_random_agent,
+    resolve_checkpoint_config_path,
     run_arena,
 )
-from hex6.eval.openings import OpeningScenario
-from hex6.search.model_guided import load_checkpoint_metadata
+from hex6.eval.openings import OpeningScenario, load_opening_suite
 
 
 @dataclass(frozen=True)
@@ -58,19 +60,26 @@ def discover_checkpoints(pattern: str, *, max_checkpoints: int) -> list[Path]:
 def build_checkpoint_participant(
     checkpoint_path: str | Path,
     *,
+    agent_config: AppConfig,
     fallback_config_path: str | Path,
     display_name: str | None = None,
 ) -> TournamentParticipant:
     checkpoint = Path(checkpoint_path).resolve()
-    config_path = resolved_checkpoint_config_path(checkpoint, fallback_config_path=fallback_config_path)
-    checkpoint_config = load_config(config_path)
-    checkpoint_agent = build_checkpoint_agent(checkpoint, checkpoint_config)
+    config_path = resolve_checkpoint_config_path(checkpoint, fallback_config_path=fallback_config_path)
+    checkpoint_agent = build_checkpoint_agent(
+        checkpoint,
+        build_checkpoint_load_config(
+            checkpoint,
+            agent_config,
+            fallback_config_path=fallback_config_path,
+        ),
+    )
 
     wrapped_agent = AgentSpec(
         name=display_name or checkpoint.stem,
-        kind="model_guided",
-        choose_turn=lambda state, _arena_config, agent=checkpoint_agent, config=checkpoint_config: agent.choose_turn(
-            state, config
+        kind=checkpoint_agent.kind,
+        choose_turn=lambda state, arena_config, agent=checkpoint_agent: agent.choose_turn(
+            state, arena_config
         ),
     )
     return TournamentParticipant(
@@ -84,6 +93,7 @@ def build_checkpoint_participant(
 
 def build_participants(
     *,
+    agent_config: AppConfig,
     base_config_path: str | Path,
     include_baseline: bool,
     include_random: bool,
@@ -123,6 +133,7 @@ def build_participants(
         participants.append(
             build_checkpoint_participant(
                 checkpoint,
+                agent_config=agent_config,
                 fallback_config_path=base_config_path,
                 display_name=participant_name,
             )
@@ -149,11 +160,12 @@ def run_round_robin_tournament(
     matches_path = output_path / "matches"
     matches_path.mkdir(parents=True, exist_ok=True)
 
+    eval_config = build_evaluation_config(config)
     evaluation = config.evaluation
     arena_config = replace(
-        config,
+        eval_config,
         evaluation=replace(
-            evaluation,
+            eval_config.evaluation,
             max_game_plies=max_game_plies if max_game_plies is not None else evaluation.max_game_plies,
             record_game_history=True,
         ),
@@ -202,6 +214,7 @@ def run_round_robin_tournament(
             "wins_b": summary["wins_b"],
             "draws": summary["draws"],
             "draws_by_ply_cap": summary["draws_by_ply_cap"],
+            "draws_by_board_exhausted": summary["draws_by_board_exhausted"],
             "draws_non_ply_cap": summary["draws_non_ply_cap"],
             "draw_rate": summary["draw_rate"],
             "score_a": summary["score_a"],
@@ -239,6 +252,7 @@ def run_round_robin_tournament(
                     "wins_b": summary["wins_b"],
                     "draws": summary["draws"],
                     "draws_by_ply_cap": summary["draws_by_ply_cap"],
+                    "draws_by_board_exhausted": summary["draws_by_board_exhausted"],
                     "leader": current_leader,
                 }
             )
@@ -252,6 +266,7 @@ def run_round_robin_tournament(
     total_games = sum(int(match["games"]) for match in matches)
     total_draws = sum(int(match["draws"]) for match in matches)
     total_draws_by_ply_cap = sum(int(match["draws_by_ply_cap"]) for match in matches)
+    total_draws_by_board_exhausted = sum(int(match["draws_by_board_exhausted"]) for match in matches)
     total_decisive_games = max(0, total_games - total_draws)
 
     summary = {
@@ -259,6 +274,9 @@ def run_round_robin_tournament(
         "requested_games_per_match": games_per_match,
         "games_per_match": effective_games_per_match,
         "max_game_plies": arena_config.evaluation.max_game_plies,
+        "board_mode": arena_config.game.board_mode,
+        "board_width": arena_config.game.board_width,
+        "board_height": arena_config.game.board_height,
         "opening_suite_size": len(opening_suite) if opening_suite else 0,
         "participants": [
             {
@@ -273,6 +291,7 @@ def run_round_robin_tournament(
         "total_games": total_games,
         "total_draws": total_draws,
         "total_draws_by_ply_cap": total_draws_by_ply_cap,
+        "total_draws_by_board_exhausted": total_draws_by_board_exhausted,
         "total_decisive_games": total_decisive_games,
         "draw_rate": round(total_draws / max(total_games, 1), 3),
         "leaderboard": leaderboard,
@@ -286,6 +305,93 @@ def run_round_robin_tournament(
     summary["history_path"] = str(history_path)
     summary_path.write_text(json.dumps(summary, indent=2), encoding="ascii")
     return summary
+
+
+def evaluate_checkpoint_with_tournament_gate(
+    checkpoint_path: str | Path,
+    config: AppConfig,
+    *,
+    config_path: str | Path,
+    output_dir: str | Path,
+    extra_checkpoint_paths: Iterable[str | Path] = (),
+    include_baseline: bool = True,
+    include_random: bool = False,
+    random_seed: int = 7,
+    progress_callback: TournamentProgressCallback | None = None,
+) -> dict[str, object]:
+    eval_config = build_evaluation_config(config)
+    checkpoint = Path(checkpoint_path).resolve()
+    checkpoint_key = normalized_path_string(checkpoint)
+    extras: list[Path] = []
+    for extra in extra_checkpoint_paths:
+        resolved = Path(extra).resolve()
+        if resolved == checkpoint or not resolved.exists():
+            continue
+        extras.append(resolved)
+
+    opening_suite = None
+    if eval_config.evaluation.post_train_opening_suite.strip():
+        opening_suite = load_opening_suite(
+            resolve_path_relative_to_config(config_path, eval_config.evaluation.post_train_opening_suite),
+            eval_config,
+        )
+
+    participants = build_participants(
+        agent_config=eval_config,
+        base_config_path=config_path,
+        include_baseline=include_baseline,
+        include_random=include_random,
+        random_seed=random_seed,
+        checkpoint_paths=[*extras, checkpoint],
+    )
+    summary = run_round_robin_tournament(
+        participants=participants,
+        config=eval_config,
+        games_per_match=max(eval_config.evaluation.arena_games, 1),
+        output_dir=Path(output_dir) / "tournament",
+        max_game_plies=eval_config.evaluation.post_train_max_game_plies,
+        opening_suite=opening_suite,
+        progress_callback=progress_callback,
+    )
+
+    leaderboard = list(summary["leaderboard"])
+    checkpoint_entry = next(
+        (
+            entry
+            for entry in leaderboard
+            if isinstance(entry.get("checkpoint_path"), str)
+            and normalized_path_string(entry["checkpoint_path"]) == checkpoint_key
+        ),
+        None,
+    )
+    if checkpoint_entry is None:
+        raise ValueError(f"checkpoint {checkpoint} was not found in tournament leaderboard")
+    checkpoint_name = str(checkpoint_entry["name"])
+    checkpoint_rank = next(index for index, entry in enumerate(leaderboard, start=1) if entry["name"] == checkpoint_name)
+    return {
+        "kind": "tournament",
+        "leader": summary["leader"],
+        "participant_count": len(summary["participants"]),
+        "games_per_match": summary["games_per_match"],
+        "max_game_plies": summary["max_game_plies"],
+        "board_width": summary.get("board_width"),
+        "board_height": summary.get("board_height"),
+        "opening_suite_size": summary["opening_suite_size"],
+        "draw_rate": summary["draw_rate"],
+        "total_draws": summary["total_draws"],
+        "total_draws_by_ply_cap": summary["total_draws_by_ply_cap"],
+        "total_draws_by_board_exhausted": summary["total_draws_by_board_exhausted"],
+        "total_decisive_games": summary["total_decisive_games"],
+        "checkpoint_name": checkpoint_name,
+        "checkpoint_rank": checkpoint_rank,
+        "checkpoint_points": checkpoint_entry["points"],
+        "checkpoint_win_rate": checkpoint_entry["win_rate"],
+        "checkpoint_wins": checkpoint_entry["wins"],
+        "checkpoint_losses": checkpoint_entry["losses"],
+        "checkpoint_draws": checkpoint_entry["draws"],
+        "summary_path": summary["summary_path"],
+        "history_path": summary["history_path"],
+    }
 
 
 def update_scoreboard(
@@ -330,6 +436,9 @@ def append_tournament_history(path: Path, summary: dict[str, object]) -> Path:
     existing.append(
         {
             "timestamp": summary["timestamp"],
+            "board_mode": summary.get("board_mode"),
+            "board_width": summary.get("board_width"),
+            "board_height": summary.get("board_height"),
             "games_per_match": summary["games_per_match"],
             "max_game_plies": summary["max_game_plies"],
             "leader": summary["leader"],
@@ -339,17 +448,33 @@ def append_tournament_history(path: Path, summary: dict[str, object]) -> Path:
     path.write_text(json.dumps(existing, indent=2), encoding="ascii")
     return path
 
+def resolve_path_relative_to_config(config_path: str | Path, raw_path: str | Path) -> Path:
+    path = Path(raw_path)
+    if path.is_absolute():
+        if not path.exists():
+            raise ValueError(f"path does not exist: {path}")
+        return path
 
-def resolved_checkpoint_config_path(checkpoint_path: Path, *, fallback_config_path: str | Path) -> str:
-    metadata = load_checkpoint_metadata(checkpoint_path)
-    raw = metadata.get("config_path")
-    if isinstance(raw, str) and raw.strip():
-        parsed = Path(raw)
-        if not parsed.is_absolute():
-            parsed = (Path.cwd() / parsed).resolve()
-        if parsed.exists():
-            return str(parsed)
-    return str(Path(fallback_config_path).resolve())
+    config_relative = (Path(config_path).resolve().parent / path).resolve()
+    repo_relative = (Path.cwd() / path).resolve()
+
+    if config_relative.exists() and repo_relative.exists() and config_relative != repo_relative:
+        raise ValueError(
+            "ambiguous relative path "
+            f"{raw_path!s}; both {config_relative} and {repo_relative} exist"
+        )
+    if config_relative.exists():
+        return config_relative
+    if repo_relative.exists():
+        return repo_relative
+    raise ValueError(
+        "could not resolve path "
+        f"{raw_path!s}; tried {config_relative} and {repo_relative}"
+    )
+
+
+def normalized_path_string(value: str | Path) -> str:
+    return str(Path(value).resolve()).lower()
 
 
 def unique_name(candidate: str, used_names: set[str]) -> str:

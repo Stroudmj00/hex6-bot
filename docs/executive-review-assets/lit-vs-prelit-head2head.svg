@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480">
+<rect width="100%" height="100%" fill="#f8f7f4"/>
+<text x="480" y="28" text-anchor="middle" font-family="Georgia, serif" font-size="22" fill="#171717">Head-to-Head Score And Elo Delta</text>
+<line x1="60" y1="240" x2="900" y2="240" stroke="#d6d0c8" stroke-width="2"/>
+<text x="480" y="220" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#5f5a55">Arena Elo-style delta</text>
+<text x="480" y="438" text-anchor="middle" font-family="Georgia, serif" font-size="16" fill="#5f5a55">Head-to-head points over 12 games</text>
+<line x1="120" y1="120" x2="840" y2="120" stroke="#d6d0c8" stroke-width="1"/>
+<line x1="120" y1="300" x2="840" y2="300" stroke="#d6d0c8" stroke-width="1"/>
+<line x1="120" y1="360" x2="840" y2="360" stroke="#d6d0c8" stroke-width="1"/>
+<rect x="167" y="88" width="313" height="40" rx="10" fill="#8e6c8a"/>
+<text x="157" y="113" text-anchor="end" font-family="Georgia, serif" font-size="14" fill="#5f5a55">pre-lit</text>
+<text x="490" y="113" text-anchor="start" font-family="Georgia, serif" font-size="14" fill="#171717">-52.09 Elo</text>
+<rect x="480" y="88" width="313" height="40" rx="10" fill="#1b5c75"/>
+<text x="803" y="113" text-anchor="start" font-family="Georgia, serif" font-size="14" fill="#171717">+52.09 Elo</text>
+<text x="490" y="340" text-anchor="middle" font-family="Georgia, serif" font-size="14" fill="#5f5a55">pre-lit</text>
+<rect x="380" y="348" width="120" height="52" rx="10" fill="#8e6c8a"/>
+<text x="440" y="380" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#171717">3.0</text>
+<text x="620" y="340" text-anchor="middle" font-family="Georgia, serif" font-size="14" fill="#5f5a55">lit</text>
+<rect x="560" y="296" width="120" height="104" rx="10" fill="#1b5c75"/>
+<text x="620" y="328" text-anchor="middle" font-family="Georgia, serif" font-size="18" fill="#171717">9.0</text>
+<text x="480" y="182" text-anchor="middle" font-family="Georgia, serif" font-size="14" fill="#5f5a55">Match result: lit won 6, drew 6, lost 0</text>
+</svg>

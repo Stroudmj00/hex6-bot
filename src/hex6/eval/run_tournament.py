@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import traceback
 
 from hex6.config import load_config
+from hex6.eval.arena import build_evaluation_config
 from hex6.eval.openings import load_opening_suite
 from hex6.eval.tournament import (
     build_participants,
     discover_checkpoints,
+    resolve_path_relative_to_config,
     run_round_robin_tournament,
 )
 from hex6.integration import build_status_publisher
@@ -38,8 +39,8 @@ def main() -> None:
     parser.add_argument(
         "--max-game-plies",
         type=int,
-        default=48,
-        help="Arena ply cap used inside tournament matches.",
+        default=0,
+        help="Arena ply cap used inside tournament matches. Use 0 to disable on bounded boards.",
     )
     parser.add_argument(
         "--opening-suite",
@@ -103,10 +104,11 @@ def main() -> None:
         for path in discover_checkpoints(args.checkpoint_glob, max_checkpoints=max(args.max_checkpoints, 0))
     ]
     config = load_config(args.config)
+    eval_config = build_evaluation_config(config)
     opening_suite = None
     if not args.no_opening_suite and str(args.opening_suite).strip():
-        opening_suite_path = Path(args.opening_suite)
-        opening_suite = load_opening_suite(opening_suite_path, config)
+        opening_suite_path = resolve_path_relative_to_config(args.config, args.opening_suite)
+        opening_suite = load_opening_suite(opening_suite_path, eval_config)
     effective_games_per_match = max(args.games_per_match, 1)
     if opening_suite and effective_games_per_match < len(opening_suite):
         effective_games_per_match = len(opening_suite)
@@ -129,6 +131,7 @@ def main() -> None:
         )
     )
     participants = build_participants(
+        agent_config=eval_config,
         base_config_path=args.config,
         include_baseline=args.include_baseline,
         include_random=args.include_random,
@@ -144,16 +147,18 @@ def main() -> None:
                 "checkpoint_count": len(checkpoints),
                 "requested_games_per_match": max(args.games_per_match, 1),
                 "games_per_match": effective_games_per_match,
-                "max_game_plies": max(args.max_game_plies, 1),
+                "max_game_plies": max(args.max_game_plies, 0),
+                "board_width": eval_config.game.board_width,
+                "board_height": eval_config.game.board_height,
                 "opening_suite_size": len(opening_suite) if opening_suite else 0,
             }
         )
     try:
         summary = run_round_robin_tournament(
             participants=participants,
-            config=config,
+            config=eval_config,
             games_per_match=max(args.games_per_match, 1),
-            max_game_plies=max(args.max_game_plies, 1),
+            max_game_plies=max(args.max_game_plies, 0),
             output_dir=args.output,
             opening_suite=opening_suite,
             progress_callback=status.publish if status.enabled else None,
@@ -178,6 +183,8 @@ def main() -> None:
                 "participant_count": len(summary["participants"]),
                 "match_count": len(summary["matches"]),
                 "games_per_match": summary["games_per_match"],
+                "board_width": summary["board_width"],
+                "board_height": summary["board_height"],
                 "opening_suite_size": summary["opening_suite_size"],
                 "draw_rate": summary["draw_rate"],
                 "total_draws": summary["total_draws"],

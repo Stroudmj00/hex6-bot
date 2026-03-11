@@ -12,8 +12,8 @@ priority = 100
 enabled = true
 min_interval_minutes = 0
 max_consecutive_runs = 3
-config = "configs/colab_hour.toml"
-output_root = "artifacts/bootstrap_colab_hour"
+config = "configs/colab_strongest_v2.toml"
+output_root = "artifacts/bootstrap_colab_strongest_v2"
 minutes = 60
 
 [[jobs]]
@@ -25,10 +25,10 @@ min_interval_minutes = 30
 config = "configs/fast.toml"
 output = "artifacts/tournament_colab"
 games_per_match = 2
-max_game_plies = 120
+max_game_plies = 0
 max_checkpoints = 3
 checkpoint_glob = "artifacts/**/bootstrap_model.pt"
-opening_suite = "configs/experiments/opening_suite.toml"
+opening_suite = "configs/experiments/conversion_opening_suite.toml"
 include_baseline = true
 include_random = true
 random_seed = 7

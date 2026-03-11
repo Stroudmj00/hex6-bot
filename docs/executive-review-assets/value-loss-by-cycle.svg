@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480">
+<rect width="100%" height="100%" fill="#f8f7f4"/>
+<text x="480.0" y="28" text-anchor="middle" font-family="Georgia, serif" font-size="22" fill="#171717">Value Loss By Cycle</text>
+<text x="20" y="225.0" transform="rotate(-90 20 225.0)" text-anchor="middle" font-family="Georgia, serif" font-size="14" fill="#5f5a55">Loss</text>
+<line x1="90" y1="56" x2="90" y2="394" stroke="#6c6761" stroke-width="1.5"/>
+<line x1="90" y1="394" x2="936" y2="394" stroke="#6c6761" stroke-width="1.5"/>
+<line x1="90" y1="56.0" x2="936" y2="56.0" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="61.0" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">1.00</text>
+<line x1="90" y1="123.6" x2="936" y2="123.6" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="128.6" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">0.80</text>
+<line x1="90" y1="191.2" x2="936" y2="191.2" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="196.2" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">0.60</text>
+<line x1="90" y1="258.8" x2="936" y2="258.8" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="263.8" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">0.40</text>
+<line x1="90" y1="326.4" x2="936" y2="326.4" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="331.4" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">0.20</text>
+<line x1="90" y1="394.0" x2="936" y2="394.0" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="399.0" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">0.00</text>
+<polyline fill="none" stroke="#1b5c75" stroke-width="3" points="90.0,392.3 134.5,392.9 179.1,362.1 223.6,392.9 268.1,392.9 312.6,392.9 357.2,392.9 401.7,392.9 446.2,392.9 490.7,392.9 535.3,392.9 579.8,392.9 624.3,392.9 668.8,392.9 713.4,392.9 757.9,392.9 802.4,392.9 846.9,392.9 891.5,392.9 936.0,392.9"/>
+<circle cx="90.0" cy="392.3" r="5" fill="#1b5c75"/>
+<text x="90.0" y="382.3" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.01</text>
+<text x="90.0" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">01</text>
+<circle cx="134.5" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="134.5" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="134.5" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">02</text>
+<circle cx="179.1" cy="362.1" r="5" fill="#1b5c75"/>
+<text x="179.1" y="352.1" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.09</text>
+<text x="179.1" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">03</text>
+<circle cx="223.6" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="223.6" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="223.6" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">04</text>
+<circle cx="268.1" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="268.1" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="268.1" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">05</text>
+<circle cx="312.6" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="312.6" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="312.6" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">06</text>
+<circle cx="357.2" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="357.2" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="357.2" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">07</text>
+<circle cx="401.7" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="401.7" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="401.7" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">08</text>
+<circle cx="446.2" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="446.2" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="446.2" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">09</text>
+<circle cx="490.7" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="490.7" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="490.7" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">10</text>
+<circle cx="535.3" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="535.3" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="535.3" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">11</text>
+<circle cx="579.8" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="579.8" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="579.8" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">12</text>
+<circle cx="624.3" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="624.3" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="624.3" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">13</text>
+<circle cx="668.8" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="668.8" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="668.8" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">14</text>
+<circle cx="713.4" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="713.4" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="713.4" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">15</text>
+<circle cx="757.9" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="757.9" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="757.9" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">16</text>
+<circle cx="802.4" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="802.4" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="802.4" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">17</text>
+<circle cx="846.9" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="846.9" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="846.9" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">18</text>
+<circle cx="891.5" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="891.5" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="891.5" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">19</text>
+<circle cx="936.0" cy="392.9" r="5" fill="#1b5c75"/>
+<text x="936.0" y="382.9" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">0.00</text>
+<text x="936.0" y="418" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">20</text>
+</svg>

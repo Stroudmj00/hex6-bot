@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 import tomllib
 from typing import Any
@@ -23,17 +24,53 @@ class RuntimeConfig:
     interop_threads: int
     enable_tf32: bool
     cudnn_benchmark: bool
+    record_resource_usage: bool
+    resource_poll_seconds: float
 
 
 @dataclass(frozen=True)
 class GameConfig:
     board_mode: str
+    board_width: int
+    board_height: int
+    board_center_q: int
+    board_center_r: int
     coordinate_system: str
     players: tuple[str, str]
     win_length: int
     opening_placements: int
     turn_placements: int
     contiguous_lines_only: bool
+
+    def __post_init__(self) -> None:
+        if self.board_mode == "sparse_bounded" and (self.board_width <= 0 or self.board_height <= 0):
+            raise ValueError(
+                "bounded boards require positive board_width and board_height values"
+            )
+
+    @lru_cache(maxsize=None)
+    def bounds(self) -> tuple[int, int, int, int] | None:
+        if self.board_mode != "sparse_bounded":
+            return None
+        min_q = self.board_center_q - self.board_width // 2
+        min_r = self.board_center_r - self.board_height // 2
+        max_q = min_q + self.board_width - 1
+        max_r = min_r + self.board_height - 1
+        return min_q, max_q, min_r, max_r
+
+    def is_in_bounds(self, cell: tuple[int, int]) -> bool:
+        bounds = self.bounds()
+        if bounds is None:
+            return True
+        min_q, max_q, min_r, max_r = bounds
+        q, r = cell
+        return min_q <= q <= max_q and min_r <= r <= max_r
+
+    def opening_cell(self) -> tuple[int, int]:
+        return self.board_center_q, self.board_center_r
+
+    def is_bounded(self) -> bool:
+        return self.bounds() is not None
 
 
 @dataclass(frozen=True)
@@ -57,8 +94,13 @@ class SearchConfig:
     use_progressive_widening: bool
     use_transposition_table: bool
     root_simulations: int
+    parallel_expansions_per_root: int
     tactical_solver: str
     shallow_reply_width: int
+    reply_depth: int
+    puct_exploration: float
+    dirichlet_alpha: float
+    dirichlet_epsilon: float
 
 
 @dataclass(frozen=True)
@@ -76,6 +118,13 @@ class TrainingConfig:
     epochs: int
     learning_rate: float
     policy_target: str
+    bootstrap_opening_suite: str
+    bootstrap_seeded_start_fraction: float
+    self_play_temperature: float
+    self_play_temperature_drop_ply: int
+    self_play_temperature_after_drop: float
+    reanalyse_fraction: float
+    reanalyse_max_examples: int
 
 
 @dataclass(frozen=True)
@@ -123,6 +172,16 @@ class IntegrationConfig:
 class EvaluationConfig:
     arena_games: int
     max_game_plies: int
+    board_width_override: int
+    board_height_override: int
+    post_train_eval: str
+    post_train_max_game_plies: int
+    post_train_opening_suite: str
+    promotion_games_per_match: int
+    promotion_opening_suite: str
+    promotion_include_baseline: bool
+    promotion_require_candidate_rank_one: bool
+    promotion_min_score_delta: float
     initial_elo: float
     k_factor: float
     model_policy_weight: float

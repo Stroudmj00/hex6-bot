@@ -8,14 +8,29 @@ version = "0.1.0"
 description = "Research scaffold for a modular hexagonal 6-in-a-row bot."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
+keywords = ["hex", "board-game", "self-play", "mcts", "pytorch"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Games/Entertainment :: Board Games",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "flask>=3.1",
+    "torch>=2.2",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
     "ruff>=0.11",
+]
+research = [
+    "wandb>=0.25",
+    "optuna>=4.7",
+    "py-spy>=0.4",
 ]
 
 [tool.setuptools]
@@ -33,6 +48,7 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["notebooks"]
 
 [tool.vercel.scripts]
 build = "python build.py"

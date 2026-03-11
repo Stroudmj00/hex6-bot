@@ -1,0 +1,38 @@
+[[scenarios]]
+name = "o_must_block_horizontal_press"
+description = "O must block X's horizontal threat while building a secondary horizontal attack."
+placements = [
+  [0, 0],
+  [-6, 3], [-5, 3],
+  [1, 0], [2, 0],
+  [-4, 3], [6, 6],
+  [3, 0], [4, 0],
+]
+expected_to_play = "o"
+expected_placements_remaining = 2
+
+[[scenarios]]
+name = "o_must_block_vertical_press"
+description = "O must block X's vertical threat while preserving a vertical follow-up."
+placements = [
+  [0, 0],
+  [5, -5], [5, -4],
+  [0, 1], [0, 2],
+  [5, -3], [-6, 6],
+  [0, 3], [0, 4],
+]
+expected_to_play = "o"
+expected_placements_remaining = 2
+
+[[scenarios]]
+name = "o_must_block_diagonal_press"
+description = "O must block X's diagonal threat while keeping a diagonal conversion line alive."
+placements = [
+  [0, 0],
+  [-6, 5], [-5, 4],
+  [1, -1], [2, -2],
+  [-4, 3], [6, 6],
+  [3, -3], [4, -4],
+]
+expected_to_play = "o"
+expected_placements_remaining = 2

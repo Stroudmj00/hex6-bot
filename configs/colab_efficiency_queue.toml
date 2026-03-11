@@ -1,0 +1,53 @@
+[queue]
+name = "hex6_colab_efficiency"
+default_status_backend = "github_branch"
+default_run_prefix = "colabq"
+idle_sleep_seconds = 30
+post_job_pause_seconds = 8
+
+[[jobs]]
+id = "parallelism_sweep_v2"
+kind = "runtime_benchmark"
+priority = 100
+enabled = true
+min_interval_minutes = 0
+max_consecutive_runs = 1
+config = "configs/colab_strongest_v2.toml"
+output = "artifacts/runtime_parallelism_colab"
+cpu_threads = [8]
+interop_threads = [2]
+self_play_workers = [4, 8, 12]
+data_loader_workers = [2]
+parallel_expansions_per_root = [4, 6, 8]
+root_simulations = 96
+bootstrap_games = 2
+epochs = 1
+max_game_plies = 0
+
+[[jobs]]
+id = "cycle_strongest_v2"
+kind = "cycle"
+priority = 90
+enabled = true
+min_interval_minutes = 0
+max_consecutive_runs = 2
+config = "configs/colab_strongest_v2.toml"
+output_root = "artifacts/bootstrap_colab_strongest_v2"
+minutes = 60
+
+[[jobs]]
+id = "tournament_regression"
+kind = "tournament"
+priority = 70
+enabled = true
+min_interval_minutes = 30
+config = "configs/fast.toml"
+output = "artifacts/tournament_colab"
+games_per_match = 2
+max_game_plies = 0
+max_checkpoints = 3
+checkpoint_glob = "artifacts/**/bootstrap_model.pt"
+opening_suite = "configs/experiments/conversion_opening_suite.toml"
+include_baseline = true
+include_random = true
+random_seed = 7

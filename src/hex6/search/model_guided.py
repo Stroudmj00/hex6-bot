@@ -9,7 +9,7 @@ import torch
 
 from hex6.config import AppConfig
 from hex6.game import Coord, GameState, IllegalMoveError, Player
-from hex6.nn import HexPolicyValueNet, encode_state
+from hex6.nn import HexPolicyValueNet, encode_state, load_compatible_state_dict
 
 from .baseline import BaselineTurnSearch, ScoredTurn
 
@@ -55,7 +55,7 @@ class ModelGuidedTurnSearch:
             channels=config.model.channels,
             blocks=config.model.blocks,
         )
-        model.load_state_dict(checkpoint["model_state_dict"])
+        load_compatible_state_dict(model, checkpoint["model_state_dict"])
         model.to(device)
         return cls(model, device=device, baseline=baseline)
 
@@ -76,7 +76,6 @@ class ModelGuidedTurnSearch:
         if not candidate_turns:
             raise IllegalMoveError("no legal turns found from the current state")
 
-        first_policy = self._first_cell_policy_scores(state, config, player)
         best_score: ModelTurnScore | None = None
 
         for turn in candidate_turns:
@@ -90,7 +89,7 @@ class ModelGuidedTurnSearch:
                     reason="model_immediate_win",
                 )
 
-            policy_score = first_policy.get(turn.cells[0], -12.0)
+            policy_score = self._turn_policy_score(state, turn.cells, config, player)
             value_score = self._value_score(state_after_turn, config, player)
             heuristic_score = self._baseline.evaluate_cached(state_after_turn, config, player).total
             combined = (
@@ -117,7 +116,7 @@ class ModelGuidedTurnSearch:
             reason="model_guided",
         )
 
-    def _first_cell_policy_scores(
+    def _policy_scores(
         self,
         state: GameState,
         config: AppConfig,
@@ -137,6 +136,22 @@ class ModelGuidedTurnSearch:
             scores[cell] = float(log_probs[index])
         self._policy_cache[key] = scores
         return scores
+
+    def _turn_policy_score(
+        self,
+        state: GameState,
+        cells: tuple[Coord, ...],
+        config: AppConfig,
+        perspective: Player,
+    ) -> float:
+        current_state = state
+        scores: list[float] = []
+        for cell in cells:
+            scores.append(self._policy_scores(current_state, config, perspective).get(cell, -12.0))
+            current_state = current_state.apply_placement(cell, config.game, record_history=False)
+            if current_state.is_terminal:
+                break
+        return sum(scores) / max(len(scores), 1)
 
     def _value_score(self, state: GameState, config: AppConfig, perspective: Player) -> float:
         key = ("value", state.signature(), perspective)

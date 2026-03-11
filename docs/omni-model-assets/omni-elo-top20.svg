@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="620" viewBox="0 0 1100 620">
+<rect width="100%" height="100%" fill="#f7f4ef"/>
+<text x="550.0" y="28" text-anchor="middle" font-family="Georgia, serif" font-size="24" fill="#171717">Top 20 Approximate Pooled Elo</text>
+<text x="24" y="250.0" transform="rotate(-90 24 250.0)" text-anchor="middle" font-family="Georgia, serif" font-size="14" fill="#5f5a55">Approx Elo</text>
+<line x1="90" y1="60" x2="90" y2="440" stroke="#6c6761" stroke-width="1.5"/>
+<line x1="90" y1="440" x2="1060" y2="440" stroke="#6c6761" stroke-width="1.5"/>
+<line x1="90" y1="60.0" x2="1060" y2="60.0" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="64.0" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">1463</text>
+<line x1="90" y1="155.0" x2="1060" y2="155.0" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="159.0" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">1097</text>
+<line x1="90" y1="250.0" x2="1060" y2="250.0" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="254.0" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">731</text>
+<line x1="90" y1="345.0" x2="1060" y2="345.0" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="349.0" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">366</text>
+<line x1="90" y1="440.0" x2="1060" y2="440.0" stroke="#ddd7cf" stroke-width="1"/>
+<text x="80" y="444.0" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">0</text>
+<rect x="96.8" y="60.0" width="34.9" height="380.0" fill="#345995" rx="3" ry="3"/>
+<text x="114.2" y="54.0" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1463</text>
+<text x="114.2" y="452" transform="rotate(55 114.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_16h_best/c003</text>
+<rect x="145.3" y="61.5" width="34.9" height="378.5" fill="#345995" rx="3" ry="3"/>
+<text x="162.8" y="55.5" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1457</text>
+<text x="162.8" y="452" transform="rotate(55 162.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_4h_strongest/c005</text>
+<rect x="193.8" y="65.1" width="34.9" height="374.9" fill="#345995" rx="3" ry="3"/>
+<text x="211.2" y="59.1" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1443</text>
+<text x="211.2" y="452" transform="rotate(55 211.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">bootstrap_mixed_fast</text>
+<rect x="242.3" y="67.0" width="34.9" height="373.0" fill="#345995" rx="3" ry="3"/>
+<text x="259.8" y="61.0" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1436</text>
+<text x="259.8" y="452" transform="rotate(55 259.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">bootstrap_convergence_fast</text>
+<rect x="290.8" y="67.1" width="34.9" height="372.9" fill="#345995" rx="3" ry="3"/>
+<text x="308.2" y="61.1" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1435</text>
+<text x="308.2" y="452" transform="rotate(55 308.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_conversion_fast/c002</text>
+<rect x="339.3" y="70.7" width="34.9" height="369.3" fill="#345995" rx="3" ry="3"/>
+<text x="356.8" y="64.7" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1422</text>
+<text x="356.8" y="452" transform="rotate(55 356.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_fast/c002</text>
+<rect x="387.8" y="77.2" width="34.9" height="362.8" fill="#345995" rx="3" ry="3"/>
+<text x="405.2" y="71.2" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1396</text>
+<text x="405.2" y="452" transform="rotate(55 405.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">compare_prelit_20m/c001</text>
+<rect x="436.3" y="77.3" width="34.9" height="362.7" fill="#345995" rx="3" ry="3"/>
+<text x="453.8" y="71.3" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1396</text>
+<text x="453.8" y="452" transform="rotate(55 453.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">cycle_promotion_lane_smoke/c001</text>
+<rect x="484.8" y="78.0" width="34.9" height="362.0" fill="#345995" rx="3" ry="3"/>
+<text x="502.2" y="72.0" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1394</text>
+<text x="502.2" y="452" transform="rotate(55 502.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">compare_lit_20m/c001</text>
+<rect x="533.3" y="80.7" width="34.9" height="359.3" fill="#345995" rx="3" ry="3"/>
+<text x="550.8" y="74.7" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1383</text>
+<text x="550.8" y="452" transform="rotate(55 550.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_4h_strongest/c002</text>
+<rect x="581.8" y="80.8" width="34.9" height="359.2" fill="#345995" rx="3" ry="3"/>
+<text x="599.2" y="74.8" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1383</text>
+<text x="599.2" y="452" transform="rotate(55 599.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_4h_strongest/c003</text>
+<rect x="630.3" y="80.8" width="34.9" height="359.2" fill="#345995" rx="3" ry="3"/>
+<text x="647.8" y="74.8" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1383</text>
+<text x="647.8" y="452" transform="rotate(55 647.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_16h_best/c001</text>
+<rect x="678.8" y="81.1" width="34.9" height="358.9" fill="#345995" rx="3" ry="3"/>
+<text x="696.2" y="75.1" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1382</text>
+<text x="696.2" y="452" transform="rotate(55 696.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">bootstrap_fast</text>
+<rect x="727.3" y="81.5" width="34.9" height="358.5" fill="#345995" rx="3" ry="3"/>
+<text x="744.8" y="75.5" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1380</text>
+<text x="744.8" y="452" transform="rotate(55 744.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_4h_strongest/c001</text>
+<rect x="775.8" y="81.7" width="34.9" height="358.3" fill="#345995" rx="3" ry="3"/>
+<text x="793.2" y="75.7" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1379</text>
+<text x="793.2" y="452" transform="rotate(55 793.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_4h_strongest/c004</text>
+<rect x="824.3" y="84.0" width="34.9" height="356.0" fill="#345995" rx="3" ry="3"/>
+<text x="841.8" y="78.0" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1370</text>
+<text x="841.8" y="452" transform="rotate(55 841.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_20_fast/c015</text>
+<rect x="872.8" y="84.3" width="34.9" height="355.7" fill="#345995" rx="3" ry="3"/>
+<text x="890.2" y="78.3" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1369</text>
+<text x="890.2" y="452" transform="rotate(55 890.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_20_fast/c016</text>
+<rect x="921.3" y="84.4" width="34.9" height="355.6" fill="#345995" rx="3" ry="3"/>
+<text x="938.8" y="78.4" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1369</text>
+<text x="938.8" y="452" transform="rotate(55 938.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_20_fast/c014</text>
+<rect x="969.8" y="84.7" width="34.9" height="355.3" fill="#345995" rx="3" ry="3"/>
+<text x="987.2" y="78.7" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1368</text>
+<text x="987.2" y="452" transform="rotate(55 987.2 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_16h_best/c002</text>
+<rect x="1018.3" y="84.8" width="34.9" height="355.2" fill="#345995" rx="3" ry="3"/>
+<text x="1035.8" y="78.8" text-anchor="middle" font-family="Georgia, serif" font-size="11" fill="#38332f">1367</text>
+<text x="1035.8" y="452" transform="rotate(55 1035.8 452)" text-anchor="start" font-family="Georgia, serif" font-size="11" fill="#5f5a55">alphazero_cycle_20_fast/c010</text>
+</svg>

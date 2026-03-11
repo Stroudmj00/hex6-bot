@@ -3,7 +3,7 @@ games = 6
 opening_suite = "opening_suite.toml"
 
 [base_overrides.evaluation]
-max_game_plies = 80
+max_game_plies = 0
 
 [[variants]]
 name = "candidate_edge"

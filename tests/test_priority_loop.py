@@ -133,3 +133,40 @@ def test_build_run_id_contains_job_and_prefix() -> None:
     now = datetime(2026, 3, 8, 4, 0, 0, tzinfo=timezone.utc)
     run_id = build_run_id("colabq", "cycle_main", now=now)
     assert run_id == "colabq-cycle_main-20260308-040000"
+
+
+def test_build_job_command_runtime_benchmark_includes_sweep_settings() -> None:
+    job = JobSpec(
+        job_id="parallelism_sweep_v2",
+        kind="runtime_benchmark",
+        priority=100,
+        enabled=True,
+        min_interval_minutes=0.0,
+        options={
+            "config": "configs/colab_strongest_v2.toml",
+            "output": "artifacts/runtime_parallelism_colab",
+            "cpu_threads": [8],
+            "interop_threads": [2],
+            "self_play_workers": [4, 8],
+            "data_loader_workers": [2],
+            "parallel_expansions_per_root": [4, 6],
+            "root_simulations": 96,
+            "bootstrap_games": 2,
+            "epochs": 1,
+            "max_game_plies": 0,
+        },
+    )
+
+    command = build_job_command(
+        job,
+        python_exe="python",
+        run_id="colabq-parallelism_sweep_v2-20260311-120000",
+        status_backend="github_branch",
+    )
+
+    joined = " ".join(command)
+    assert "hex6.train.benchmark_runtime" in joined
+    assert "--config configs/colab_strongest_v2.toml" in joined
+    assert "--output artifacts/runtime_parallelism_colab" in joined
+    assert "--root-simulations 96" in joined
+    assert "--bootstrap-games 2" in joined

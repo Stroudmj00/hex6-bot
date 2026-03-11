@@ -6,13 +6,14 @@ the working context.
 ## Interaction expectations
 
 - The website must allow direct hex selection with pointer input.
-- The board must support drag-to-pan across an effectively infinite grid.
+- The board must support drag-to-pan across the bounded default board and any larger comparison boards.
 - The board should not render coordinate labels in the play view.
-- The first played stone should be treated as the display origin for the session.
+- On bounded boards, the website should keep the configured board center as the display anchor.
 
 ## Representation expectations
 
-- The legal game remains a sparse, effectively infinite board.
+- The default legal game is a sparse bounded `15 x 15` board.
+- Unbounded or larger bounded boards remain experiment modes controlled explicitly by config.
 - For learning and dataset generation, positions should be translation-normalized so the
   first played stone becomes `(0, 0)` when practical.
 - Key search, training, and pruning assumptions belong in config files rather than being

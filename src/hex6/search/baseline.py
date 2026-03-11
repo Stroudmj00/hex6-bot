@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import combinations
+from types import SimpleNamespace
 from typing import Any
 
 from hex6.config import AppConfig
@@ -29,11 +30,15 @@ class BaselineTurnSearch:
         self._candidate_cache: dict[tuple[Any, ...], list[Any]] = {}
         self._evaluation_cache: dict[tuple[Any, ...], Any] = {}
         self._immediate_turn_cache: dict[tuple[Any, ...], list[tuple[Coord, ...]]] = {}
+        self._reply_score_cache: dict[tuple[Any, ...], float] = {}
+        self._followup_score_cache: dict[tuple[Any, ...], float] = {}
 
     def clear_caches(self) -> None:
         self._candidate_cache.clear()
         self._evaluation_cache.clear()
         self._immediate_turn_cache.clear()
+        self._reply_score_cache.clear()
+        self._followup_score_cache.clear()
 
     def choose_turn(self, state: GameState, config: AppConfig) -> ScoredTurn:
         if state.is_terminal:
@@ -41,7 +46,7 @@ class BaselineTurnSearch:
 
         if not state.stones and state.placements_remaining == 1:
             return ScoredTurn(
-                cells=((0, 0),),
+                cells=(config.game.opening_cell(),),
                 score=config.heuristic.terminal_score / 10000.0,
                 reply_score=0.0,
                 evaluation_score=config.heuristic.terminal_score / 10000.0,
@@ -55,10 +60,11 @@ class BaselineTurnSearch:
 
     def _choose_turn_heuristic(self, state: GameState, config: AppConfig) -> ScoredTurn:
         player = state.to_play
+        reply_depth = self._reply_depth(config)
         first_candidates = self.top_candidates(state, config, player)[: config.prototype.first_stone_candidate_limit]
 
         for first in first_candidates:
-            state_after_first = state.apply_placement(first.cell, config.game)
+            state_after_first = state.apply_placement(first.cell, config.game, record_history=False)
             if state_after_first.winner == player:
                 return ScoredTurn(
                     cells=(first.cell,),
@@ -71,7 +77,7 @@ class BaselineTurnSearch:
         if state.placements_remaining == 1:
             best: ScoredTurn | None = None
             for first in first_candidates:
-                state_after_first = state.apply_placement(first.cell, config.game)
+                state_after_first = state.apply_placement(first.cell, config.game, record_history=False)
                 if state_after_first.winner == player:
                     scored = ScoredTurn(
                         cells=(first.cell,),
@@ -81,7 +87,12 @@ class BaselineTurnSearch:
                         reason="immediate_win",
                     )
                 else:
-                    opponent_reply = self.worst_reply_score(state_after_first, config, player)
+                    opponent_reply = self.worst_reply_score(
+                        state_after_first,
+                        config,
+                        player,
+                        remaining_depth=reply_depth,
+                    )
                     evaluation = self.evaluate_cached(state_after_first, config, player)
                     scored = ScoredTurn(
                         cells=(first.cell,),
@@ -122,7 +133,12 @@ class BaselineTurnSearch:
                 )
             else:
                 evaluation = evaluate_state(state_after_turn, config, player)
-                opponent_reply = self.worst_reply_score(state_after_turn, config, player)
+                opponent_reply = self.worst_reply_score(
+                    state_after_turn,
+                    config,
+                    player,
+                    remaining_depth=reply_depth,
+                )
                 combined = opponent_reply
                 scored = ScoredTurn(
                     cells=turn.cells,
@@ -167,7 +183,78 @@ class BaselineTurnSearch:
             if forced_defense:
                 return self._score_turns(state, config, player, forced_defense, reason="forced_defense")
 
+        forcing_attack = self._choose_forcing_attack(state, config, player)
+        if forcing_attack is not None:
+            return forcing_attack
+
         return self._choose_turn_heuristic(state, config)
+
+    def _choose_forcing_attack(
+        self,
+        state: GameState,
+        config: AppConfig,
+        player: Player,
+    ) -> ScoredTurn | None:
+        own_turns = self.enumerate_turns(
+            state,
+            config,
+            player=player,
+            first_width=config.prototype.first_stone_candidate_limit,
+            second_width=config.prototype.second_stone_candidate_limit,
+        )
+
+        best: ScoredTurn | None = None
+        best_threat_count = -1
+        forcing_score = config.heuristic.terminal_score - 1.0
+        for turn in own_turns:
+            state_after_turn = self.apply_cells(state, turn.cells, config)
+            if state_after_turn.winner == player:
+                continue
+
+            threats = self._find_immediate_turns(
+                state_after_turn,
+                config,
+                player,
+                config.game.turn_placements,
+            )
+            if not threats:
+                continue
+
+            defenses = self._defensive_turns(
+                state_after_turn,
+                config,
+                state_after_turn.to_play,
+                threats,
+            )
+            if defenses:
+                continue
+
+            evaluation = self.evaluate_cached(state_after_turn, config, player)
+            scored = ScoredTurn(
+                cells=turn.cells,
+                score=forcing_score,
+                reply_score=forcing_score,
+                evaluation_score=evaluation.total,
+                reason="forcing_attack",
+            )
+            if (
+                best is None
+                or len(threats) > best_threat_count
+                or (
+                    len(threats) == best_threat_count
+                    and (
+                        scored.evaluation_score > best.evaluation_score
+                        or (
+                            scored.evaluation_score == best.evaluation_score
+                            and scored.cells < best.cells
+                        )
+                    )
+                )
+            ):
+                best = scored
+                best_threat_count = len(threats)
+
+        return best
 
     def _score_turns(
         self,
@@ -178,6 +265,7 @@ class BaselineTurnSearch:
         reason: str,
     ) -> ScoredTurn:
         best: ScoredTurn | None = None
+        reply_depth = self._reply_depth(config)
         for cells in turns:
             state_after_turn = self.apply_cells(state, cells, config)
             if state_after_turn.winner == player:
@@ -190,7 +278,12 @@ class BaselineTurnSearch:
                 )
             else:
                 evaluation = evaluate_state(state_after_turn, config, player)
-                opponent_reply = self.worst_reply_score(state_after_turn, config, player)
+                opponent_reply = self.worst_reply_score(
+                    state_after_turn,
+                    config,
+                    player,
+                    remaining_depth=reply_depth,
+                )
                 combined = opponent_reply
                 scored = ScoredTurn(
                     cells=cells,
@@ -220,7 +313,7 @@ class BaselineTurnSearch:
         seen: set[tuple[Coord, ...]] = set()
 
         for first in first_candidates:
-            state_after_first = state.apply_placement(first.cell, config.game)
+            state_after_first = state.apply_placement(first.cell, config.game, record_history=False)
             if state_after_first.winner == player or state_after_first.to_play != player:
                 cells = (first.cell,)
                 if cells not in seen:
@@ -347,7 +440,7 @@ class BaselineTurnSearch:
         ranked = [candidate.cell for candidate in self.top_candidates(state, config, player)]
         frontier = sorted(
             cell
-            for cell in position.frontier_cells(max(1, config.prototype.frontier_distance))
+            for cell in position.frontier_cells(max(1, config.prototype.frontier_distance), config.game)
             if state.is_empty(cell)
         )
         extras = ranked + critical_cells + frontier
@@ -372,9 +465,29 @@ class BaselineTurnSearch:
         chosen = set(turn)
         return all(any(cell in chosen for cell in threat) for threat in threats)
 
-    def worst_reply_score(self, state: GameState, config: AppConfig, root_player: Player) -> float:
+    def worst_reply_score(
+        self,
+        state: GameState,
+        config: AppConfig,
+        root_player: Player,
+        *,
+        remaining_depth: int | None = None,
+    ) -> float:
+        remaining_depth = remaining_depth if remaining_depth is not None else self._reply_depth(config)
+        key = (
+            "reply_score",
+            state.signature(),
+            root_player,
+            remaining_depth,
+            self._config_cache_key(config),
+        )
+        cached = self._reply_score_cache.get(key)
+        if cached is not None:
+            return cached
         if state.is_terminal:
-            return self.evaluate_cached(state, config, root_player).total
+            score = self.evaluate_cached(state, config, root_player).total
+            self._reply_score_cache[key] = score
+            return score
 
         opponent = state.to_play
         if config.search.tactical_solver == "threat_search":
@@ -385,7 +498,9 @@ class BaselineTurnSearch:
                 state.placements_remaining,
             )
             if immediate_replies:
-                return -config.heuristic.terminal_score
+                score = -config.heuristic.terminal_score
+                self._reply_score_cache[key] = score
+                return score
         replies = self.enumerate_turns(
             state,
             config,
@@ -394,14 +509,167 @@ class BaselineTurnSearch:
             second_width=config.prototype.second_stone_candidate_limit,
         )
         if not replies:
-            return self.evaluate_cached(state, config, root_player).total
+            score = self.evaluate_cached(state, config, root_player).total
+            self._reply_score_cache[key] = score
+            return score
 
         worst = float("inf")
         for reply in replies:
             reply_state = self.apply_cells(state, reply.cells, config)
-            evaluation = self.evaluate_cached(reply_state, config, root_player)
-            worst = min(worst, evaluation.total)
+            worst = min(
+                worst,
+                self._score_reply_state(
+                    reply_state,
+                    config,
+                    root_player,
+                    remaining_depth=remaining_depth,
+                ),
+            )
+            if worst <= -config.heuristic.terminal_score:
+                break
+        self._reply_score_cache[key] = worst
         return worst
+
+    def _score_reply_state(
+        self,
+        state: GameState,
+        config: AppConfig,
+        root_player: Player,
+        *,
+        remaining_depth: int,
+    ) -> float:
+        if config.search.tactical_solver == "threat_search":
+            root_immediate_turns = self._find_immediate_turns(
+                state,
+                config,
+                root_player,
+                state.placements_remaining,
+            )
+            if root_immediate_turns:
+                return config.heuristic.terminal_score - 1.0
+
+        if remaining_depth > 1 and not state.is_terminal:
+            return self._best_followup_score(
+                state,
+                config,
+                root_player,
+                remaining_depth=remaining_depth - 1,
+            )
+
+        return self.evaluate_cached(state, config, root_player).total
+
+    def _best_followup_score(
+        self,
+        state: GameState,
+        config: AppConfig,
+        root_player: Player,
+        *,
+        remaining_depth: int,
+    ) -> float:
+        key = (
+            "followup_score",
+            state.signature(),
+            root_player,
+            remaining_depth,
+            self._config_cache_key(config),
+        )
+        cached = self._followup_score_cache.get(key)
+        if cached is not None:
+            return cached
+        if state.is_terminal:
+            score = self.evaluate_cached(state, config, root_player).total
+            self._followup_score_cache[key] = score
+            return score
+
+        player = state.to_play
+        if player != root_player:
+            score = self.worst_reply_score(
+                state,
+                config,
+                root_player,
+                remaining_depth=remaining_depth,
+            )
+            self._followup_score_cache[key] = score
+            return score
+
+        if config.search.tactical_solver == "threat_search":
+            immediate_turns = self._find_immediate_turns(
+                state,
+                config,
+                player,
+                state.placements_remaining,
+            )
+            if immediate_turns:
+                score = config.heuristic.terminal_score
+                self._followup_score_cache[key] = score
+                return score
+
+        if state.placements_remaining == 1:
+            first_candidates = self.top_candidates(state, config, player)[: config.prototype.first_stone_candidate_limit]
+            if not first_candidates:
+                score = self.evaluate_cached(state, config, root_player).total
+                self._followup_score_cache[key] = score
+                return score
+
+            best = float("-inf")
+            for first in first_candidates:
+                state_after_first = state.apply_placement(first.cell, config.game, record_history=False)
+                if state_after_first.winner == player:
+                    score = config.heuristic.terminal_score
+                    self._followup_score_cache[key] = score
+                    return score
+                best = max(
+                    best,
+                    self.worst_reply_score(
+                        state_after_first,
+                        config,
+                        root_player,
+                        remaining_depth=remaining_depth,
+                    ),
+                )
+                if best >= config.heuristic.terminal_score:
+                    break
+            self._followup_score_cache[key] = best
+            return best
+
+        own_turns = self.enumerate_turns(
+            state,
+            config,
+            player=player,
+            first_width=config.prototype.first_stone_candidate_limit,
+            second_width=config.prototype.second_stone_candidate_limit,
+        )
+        if not own_turns:
+            score = self.evaluate_cached(state, config, root_player).total
+            self._followup_score_cache[key] = score
+            return score
+
+        best = float("-inf")
+        for turn in own_turns:
+            state_after_turn = self.apply_cells(state, turn.cells, config)
+            if state_after_turn.winner == player:
+                score = config.heuristic.terminal_score
+                self._followup_score_cache[key] = score
+                return score
+            best = max(
+                best,
+                self.worst_reply_score(
+                    state_after_turn,
+                    config,
+                    root_player,
+                    remaining_depth=remaining_depth,
+                ),
+            )
+            if best >= config.heuristic.terminal_score:
+                break
+        self._followup_score_cache[key] = best
+        return best
+
+    @staticmethod
+    def _reply_depth(config: AppConfig) -> int:
+        if config.search.reply_depth < 1:
+            raise ValueError(f"search.reply_depth must be >= 1, received {config.search.reply_depth}")
+        return config.search.reply_depth
 
     def top_candidates(self, state: GameState, config: AppConfig, player: Player) -> list[Any]:
         key = ("candidates", state.signature(), player, self._config_cache_key(config))
@@ -411,6 +679,11 @@ class BaselineTurnSearch:
 
         position = SparsePosition.from_game_state(state)
         scored = position.top_first_stone_candidates(config, player)
+        if not scored:
+            scored = [
+                SimpleNamespace(cell=cell, total=0.0)
+                for cell in self._fallback_empty_cells(state, config)
+            ]
         self._candidate_cache[key] = scored
         return scored
 
@@ -423,6 +696,36 @@ class BaselineTurnSearch:
         evaluation = evaluate_state(state, config, player)
         self._evaluation_cache[key] = evaluation
         return evaluation
+
+    @staticmethod
+    def _fallback_empty_cells(state: GameState, config: AppConfig) -> list[Coord]:
+        bounds = config.game.bounds()
+        if bounds is not None:
+            min_q, max_q, min_r, max_r = bounds
+            empties = [
+                (q, r)
+                for q in range(min_q, max_q + 1)
+                for r in range(min_r, max_r + 1)
+                if state.is_empty((q, r))
+            ]
+            empties.sort()
+            return empties
+
+        position = SparsePosition.from_game_state(state)
+        empties = sorted(cell for cell in position.analysis_cells(config) if state.is_empty(cell))
+        if empties:
+            return empties
+
+        frontier = sorted(
+            cell
+            for cell in position.frontier_cells(max(1, config.prototype.frontier_distance), config.game)
+            if state.is_empty(cell)
+        )
+        if frontier:
+            return frontier
+
+        opening = config.game.opening_cell()
+        return [opening] if state.is_empty(opening) else []
 
     @staticmethod
     def _config_cache_key(config: AppConfig) -> tuple[Any, ...]:
@@ -438,7 +741,7 @@ class BaselineTurnSearch:
     def apply_cells(state: GameState, cells: tuple[Coord, ...], config: AppConfig) -> GameState:
         current = state
         for cell in cells:
-            current = current.apply_placement(cell, config.game)
+            current = current.apply_placement(cell, config.game, record_history=False)
             if current.is_terminal:
                 return current
         return current

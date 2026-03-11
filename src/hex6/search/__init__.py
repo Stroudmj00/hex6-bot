@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from .baseline import BaselineTurnSearch, ScoredTurn
+from .guided_mcts import GuidedMctsTurnSearch, RootAnalysis, RootTurnStat
 from .heuristics import HeuristicEvaluation, evaluate_state
 
 if TYPE_CHECKING:
@@ -10,8 +11,11 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BaselineTurnSearch",
+    "GuidedMctsTurnSearch",
     "HeuristicEvaluation",
     "ModelGuidedTurnSearch",
+    "RootAnalysis",
+    "RootTurnStat",
     "ScoredTurn",
     "evaluate_state",
 ]

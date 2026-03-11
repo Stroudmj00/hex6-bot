@@ -4,7 +4,7 @@
 
 The current target is the `6 in a row` hexagonal variant described in the linked video:
 
-- The board is treated as effectively infinite.
+- The default board is a bounded `15 x 15` q/r window.
 - `X` places `1` opening stone.
 - After that, each player places `2` stones per turn.
 - A player wins by making `6` contiguous stones in a straight line on any of the three
@@ -20,13 +20,13 @@ first played stone becomes `(0, 0)`.
 
 This should be treated as a representation choice, not a rule change:
 
-- the legal game remains an infinite sparse board,
+- the default legal game remains a sparse bounded board,
 - the engine may still store absolute coordinates internally,
 - but training data, hashing, and model inputs should use a canonical translated frame when
   practical.
 
-The website now follows this display convention by treating the first played stone as the
-session origin.
+On the bounded default website, the view stays anchored to the configured board center so
+the finite board remains visually stable.
 
 ## Why this game is hard
 
@@ -37,9 +37,11 @@ session origin.
 
 This means the project should not assume:
 
-- a fixed board,
 - a purely local search frontier,
 - or naive full-width MCTS over all empty cells.
+
+Even on the bounded default board, the engine still needs to reason sparsely and handle
+edge-aware play correctly.
 
 ## Core concepts to model
 

@@ -2,205 +2,267 @@
 
 ## Goal
 
-Run the same bootstrap flow in Google Colab so training can use a hosted GPU while the
-codebase stays local-friendly.
+Run the same guided-MCTS AlphaZero-style training loop on Colab so GPU-backed training and
+local development use the same configs and artifact format.
 
-## Integration boundary
+## Operating policy
 
-This project should assume:
+- local machine: code editing, unit tests, CPU-only debug/profiling, and web/debug work
+- do not use the local GPU for experimental training or evaluation
+- Colab: all real training runs, pipeline comparisons, longer evals, and efficiency experiments
+- long runs should prefer the queue/automation path so results and status land in the same place every time
 
-- Colab is a separate runtime,
-- local Codex work cannot directly inspect or control a live Colab session,
-- synchronization must happen through explicit artifacts, repository commits, or Drive files.
+## GPU policy
 
-The current bridge is:
+Standard Colab cannot guarantee a specific GPU model on every runtime. The practical way to avoid wasting long runs is:
 
-- stdout logs in the notebook,
-- `progress.json` written into the output artifact folder,
-- `metrics.json` and model checkpoints saved to disk,
-- `status/latest.json` plus per-run status files on the `colab-status` branch,
-- optional copy-back into Google Drive.
+- request a GPU runtime in Colab
+- inspect the detected GPU before launching the job
+- fail fast unless it meets a minimum tier you accept
 
-If tighter integration is needed later, build it as an explicit file-based or API-based
-bridge rather than assuming hidden shared session access.
+This repo now supports that directly through `scripts/colab_run.py`.
 
-## What is ready
+Supported tiers:
 
-- Config-selectable bootstrap CLI.
-- Fast profile at `configs/fast.toml`.
-- Medium profile at `configs/colab.toml`.
-- Hour-cycle profile at `configs/colab_hour.toml`.
-- Colab notebook at `notebooks/hex6_colab_fast_bootstrap.ipynb`.
-- Notebook modes for bootstrap, cycle, search-matrix, tournament, and priority-loop jobs.
-- Local watcher at `python -m hex6.integration.watch_status`.
+- `H100`
+- `A100`
+- `V100`
+- `A10G`
+- `L4`
+- `T4`
+- `P100`
+- `K80`
 
-## One-time GitHub status setup
+For this repo, a reasonable policy is:
 
-For the notebook to publish run status back into the repository, add a fine-grained GitHub
-token to Colab secrets:
+- long training runs: `--minimum-gpu-tier V100`
+- okay-but-cheaper fallback: `--minimum-gpu-tier T4`
+- highest-end only: `--minimum-gpu-tier A100`
 
-1. Create a fine-grained token with `Contents: Read and write` access to
-   `Stroudmj00/hex6-bot`.
-2. In Colab, open the secrets panel.
-3. Add a secret named `HEX6_GITHUB_TOKEN`.
+Default project policy:
 
-The token is not stored in this repository. The notebook loads it from Colab secrets at
-runtime.
+- regular Colab cycle/eval runs: `V100+`
+- strongest-model pushes: `A100` only
 
-If the secret is absent, the notebook still runs training but disables GitHub status
-publishing for that run.
+## What I need from you
 
-## Recommended first run
+I do not need your Google password or any browser cookie copied into chat.
 
-Use the fast profile first if you are only checking wiring. For a real sprint run, use
-`configs/colab.toml`. For a longer session that should keep producing checkpoints and Elo
-history over time, use `configs/colab_hour.toml` with the cycle runner.
+To wire up Colab cleanly, I only need:
 
-The Colab profile is still intentionally conservative:
+- the Google account email you use for Colab
+- the Google Colab notebook URL you want the extension or automation to open
+- the local Google Drive sync root used by Colab Desktop sync
+- the repo mirror path under that Drive root
+- whether GitHub status publishing should be enabled
 
-- no long-range islands,
-- narrow candidate counts,
-- shallow reply width,
-- modest model,
-- short bootstrap games,
-- a few epochs.
+Optional but useful:
 
-This is not full AlphaZero-style self-training yet. The current longer loop is:
+- confirmation that the `HEX6_GITHUB_TOKEN` Colab secret exists
+- confirmation that the VS Code Colab extension is already signed in
 
-- search-generated self-play data,
-- warm-start the next cycle from the previous checkpoint,
-- evaluate the new checkpoint against the baseline,
-- append Elo history after each cycle.
+Once those are set, I can fill the repo-side pieces myself:
 
-That is enough to measure whether the model is moving in the right direction over an hour.
+- `trainingFilePath`
+- `resultsSavePath`
+- the exact `python -m ...` command for the job type
+- whether the run should be a one-shot cycle, queue loop, or targeted eval
 
-For autonomous operation, the notebook now defaults to `RUN_MODE = "priority_loop"`
-so the Colab runtime continuously executes the priority-scored queue.
+## What the Colab lane does
 
-## How to use in Colab
+- runs `guided_mcts` self-play
+- trains from visit-distribution policy targets plus final outcome values
+- keeps the bounded `15 x 15` rules from the repo defaults
+- writes `progress.json`, `metrics.json`, checkpoints, and tournament summaries
+- can publish status back to the `colab-status` branch
+- promotes challengers through a stronger promotion lane with baseline included
 
-### Option 1: From GitHub
+## Primary configs
 
-1. Push this repository to GitHub.
-2. Open `notebooks/hex6_colab_fast_bootstrap.ipynb` in Colab.
-3. Set `REPO_MODE = "git"` and use `https://github.com/Stroudmj00/hex6-bot.git`.
-4. Run the notebook cells.
-5. In a local terminal, watch status with:
+- `configs/fast.toml`: fast smoke lane
+- `configs/colab.toml`: medium lane
+- `configs/colab_hour.toml`: repeated cycle lane
+- `configs/colab_strongest_v2.toml`: best current Colab training lane
+- `configs/colab_job_queue.toml`: priority-queue automation
 
-```powershell
-.venv\Scripts\python -m hex6.integration.watch_status --config configs/colab.toml --run-id latest
-```
+## Recommended commands
 
-The notebook prints the exact watch command for the generated `RUN_ID`. When a
-job uses a config whose default `status_backend` is `none`, the notebook passes
-`--status-backend github_branch` automatically when `HEX6_GITHUB_TOKEN` is
-available.
-
-Runtime safety defaults:
-
-- `REQUIRE_COLAB = True` to fail fast outside Colab.
-- `REQUIRE_GPU = True` to fail fast when no CUDA GPU is attached.
-- `EXPECTED_BRANCH = "main"` and `ENFORCE_LATEST_MAIN = True` to verify the
-  runtime repository is at latest `origin/main` before launching jobs.
-
-### Option 2: From Google Drive
-
-1. Upload the repository folder to Google Drive.
-2. Open the notebook in Colab.
-3. Set `REPO_MODE = "drive"` and point `DRIVE_REPO_PATH` at the folder.
-4. Run the notebook cells.
-
-## What the notebook does
-
-- mounts Drive if needed,
-- clones or copies the repo into `/content`,
-- installs the package in editable mode,
-- prints CUDA availability,
-- runs one of:
+Bootstrap run:
 
 ```bash
 python -m hex6.train.run_bootstrap --config configs/colab.toml --output artifacts/bootstrap_colab
 ```
 
-or:
+Cycle run:
 
 ```bash
-python -m hex6.train.run_cycle --config configs/colab_hour.toml --output-root artifacts/bootstrap_colab_hour --minutes 60
+python -m hex6.train.run_cycle --config configs/colab_strongest_v2.toml --output-root artifacts/bootstrap_colab_strongest_v2 --minutes 60
 ```
+
+Tournament eval:
 
 ```bash
-python -m hex6.eval.run_search_matrix --matrix configs/experiments/search_matrix.toml --output artifacts/search_matrix_colab --run-id <run-id> --status-backend github_branch
+python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament_colab --games-per-match 4 --max-game-plies 0 --opening-suite configs/experiments/opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id <run-id> --status-backend github_branch
 ```
 
-```bash
-python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament_colab --games-per-match 4 --max-game-plies 120 --opening-suite configs/experiments/opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id <run-id> --status-backend github_branch
-```
-
-or (priority-scored queue loop):
+Priority queue:
 
 ```bash
 python -m hex6.integration.run_priority_loop --queue configs/colab_job_queue.toml --state artifacts/colab_queue/state.json --status-backend github_branch
 ```
 
-- copies the resulting artifacts back to Drive if Drive mode is enabled.
-- writes progress to `artifacts/bootstrap_colab/progress.json` for training jobs.
-- writes a GitHub-backed status document to the `colab-status` branch when
-  `HEX6_GITHUB_TOKEN` is available.
-- writes `arena.json` and `elo_history.json` when evaluation is enabled.
-- writes `summary.json` for search-matrix and tournament eval jobs.
-- for priority-loop mode, writes queue state to `artifacts/colab_queue/state.json`.
-- prints and writes repository version metadata (`head`, `head_short`,
-  `head_commit_utc`, notebook `last_modified_utc`, remote head comparison) to
-  `repo_version.json` in the selected output directory.
+## Recommended split
 
-## Priority Queue Mode
+Use this split unless there is a specific reason not to:
 
-Use `configs/colab_job_queue.toml` to define jobs with explicit numeric
-`priority` scores. The scheduler always picks the highest-priority runnable job
-(respecting each job's `min_interval_minutes`). To avoid starvation, each job can
-set `max_consecutive_runs`; when the cap is reached and another job is eligible,
-the runner yields to the next-priority job.
+- local
+  - `.venv\Scripts\python -m pytest`
+  - `.venv\Scripts\python -m hex6.web.run_server --config configs/play.toml --host 127.0.0.1 --port 5000`
+  - CPU-only smoke/debug commands when needed
+- Colab
+  - `python -m hex6.train.run_cycle --config configs/colab_strongest_v2.toml --output-root artifacts/bootstrap_colab_strongest_v2 --minutes 60`
+  - `python -m hex6.integration.run_priority_loop --queue configs/colab_job_queue.toml --state artifacts/colab_queue/state.json --status-backend github_branch`
+  - `python scripts/colab_run.py runtime-benchmark --repo-root /content/drive/MyDrive/Hex-A-Toe --minimum-gpu-tier V100 --config configs/colab_strongest_v2.toml --output artifacts/runtime_parallelism_colab`
+  - long tournament, board-size ablation, and efficiency runs
 
-Default queue priorities:
+## Notebook recipe
 
-- `cycle_main`: `100`
-- `tournament_regression`: `80` (`max_game_plies = 120`, opening suite enabled)
-- `search_matrix_regression`: `65`
-- `bootstrap_refresh`: `50`
+If your Drive mirror lives at `/content/drive/MyDrive/Hex-A-Toe`, this is the cleanest notebook flow.
 
-## Current local validation
+Cell 1: mount Drive and enter the repo
 
-The project has already been validated locally with both a fast and a medium profile.
+```python
+from google.colab import drive
+drive.mount("/content/drive")
+%cd /content/drive/MyDrive/Hex-A-Toe
+```
 
-The medium profile produced:
+Cell 2: install the repo and confirm CUDA
 
-- `artifacts/bootstrap_colab_test/bootstrap_model.pt`
-- `artifacts/bootstrap_colab_test/metrics.json`
-- `artifacts/bootstrap_colab_test/progress.json`
+```bash
+python -m pip install -U pip
+python -m pip install -e .[dev]
+python - <<'PY'
+import torch
+print("cuda_available =", torch.cuda.is_available())
+print("device_count =", torch.cuda.device_count())
+print("device_name =", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu")
+PY
+```
 
-## Important limitation
+Cell 3: optional GitHub status secret
 
-Colab will accelerate the model training and later batched inference, but pure Python
-self-play/search is still the main cost right now. The next optimization pass should reduce
-search cost before we scale up training volume.
+```python
+import os
+try:
+    from google.colab import userdata
+    token = userdata.get("HEX6_GITHUB_TOKEN")
+    if token:
+        os.environ["HEX6_GITHUB_TOKEN"] = token
+        print("Loaded HEX6_GITHUB_TOKEN from Colab secrets.")
+    else:
+        print("No HEX6_GITHUB_TOKEN secret found.")
+except Exception as exc:
+    print(f"Could not load Colab secret: {exc}")
+```
 
-## Parallel runs guidance
+Cell 4: optional W&B tracking
 
-Running multiple training runs in the same Colab runtime usually does **not** improve total
-throughput for this project:
+```python
+import os
+os.environ["HEX6_ENABLE_WANDB"] = "1"
+os.environ["HEX6_WANDB_MODE"] = "online"  # use "offline" if you only want local files on Drive
+os.environ["HEX6_WANDB_PROJECT"] = "hex6-bot"
+os.environ["HEX6_WANDB_TAGS"] = "colab,cycle"
+os.environ["WANDB_DIR"] = "/content/drive/MyDrive/Hex-A-Toe/artifacts/wandb"
+```
 
-- runs contend for one GPU, shared CPU, RAM, and disk bandwidth,
-- each run gets fewer resources, so wall-clock time per run increases,
-- OOM and instability risk goes up.
+Cell 5: run a one-hour cycle
 
-Better pattern:
+```bash
+python scripts/colab_run.py cycle \
+  --repo-root /content/drive/MyDrive/Hex-A-Toe \
+  --minimum-gpu-tier V100 \
+  --config configs/colab_strongest_v2.toml \
+  --output-root artifacts/bootstrap_colab_strongest_v2 \
+  --minutes 60
+```
 
-- keep one training job per runtime,
-- parallelize within that job (`self_play_workers`, data-loader workers, batched inference),
-- run additional experiments only if you can use separate runtimes and still stay within Colab
-  usage and policy limits.
-- if you need guaranteed parallel capacity, move those jobs to Colab Enterprise or dedicated
-  cloud VMs instead of relying on dynamic shared runtimes.
+Cell 6: run the always-on priority queue instead
 
-For autonomous sweeps, treat Colab as the heavy-compute lane and keep the local
-machine limited to `watch_status`, the website, and lightweight coding tasks.
+```bash
+python scripts/colab_run.py queue \
+  --repo-root /content/drive/MyDrive/Hex-A-Toe \
+  --minimum-gpu-tier V100 \
+  --queue configs/colab_job_queue.toml \
+  --state artifacts/colab_queue/state.json \
+  --max-minutes 480
+```
+
+Cell 7: runtime benchmark / efficiency sweep
+
+```bash
+python scripts/colab_run.py runtime-benchmark \
+  --repo-root /content/drive/MyDrive/Hex-A-Toe \
+  --minimum-gpu-tier V100 \
+  --config configs/colab_strongest_v2.toml \
+  --output artifacts/runtime_parallelism_colab \
+  --cpu-threads 8 \
+  --interop-threads 2 \
+  --self-play-workers 4 8 12 \
+  --data-loader-workers 2 \
+  --parallel-expansions-per-root 4 6 8 \
+  --root-simulations 96 \
+  --bootstrap-games 2 \
+  --epochs 1 \
+  --max-game-plies 0
+```
+
+Cell 8: targeted tournament eval
+
+```bash
+python scripts/colab_run.py tournament \
+  --repo-root /content/drive/MyDrive/Hex-A-Toe \
+  --minimum-gpu-tier V100 \
+  --config configs/fast.toml \
+  --output artifacts/tournament_colab \
+  --games-per-match 4 \
+  --max-game-plies 0 \
+  --checkpoint-glob "artifacts/**/bootstrap_model.pt" \
+  --opening-suite configs/experiments/conversion_opening_suite.toml
+```
+
+## GitHub status publishing
+
+If you want notebook runs to publish status back to GitHub, add a Colab secret named
+`HEX6_GITHUB_TOKEN` with `Contents: Read and write` access to `Stroudmj00/hex6-bot`.
+
+Without the secret, training still runs normally; only status publishing is disabled.
+
+## W&B tracking
+
+W&B tracking is now built into `hex6.train.run_bootstrap` and `hex6.train.run_cycle`.
+It is opt-in and controlled only by environment variables:
+
+- `HEX6_ENABLE_WANDB=1`
+- `HEX6_WANDB_MODE=online|offline|disabled`
+- `HEX6_WANDB_PROJECT=<project>`
+- `HEX6_WANDB_ENTITY=<entity>`
+- `HEX6_WANDB_GROUP=<group>`
+- `HEX6_WANDB_TAGS=tag1,tag2`
+- `HEX6_WANDB_RUN_NAME=<name>`
+- `WANDB_DIR=<artifact dir>`
+
+For Colab, set `WANDB_DIR` to a Drive-backed folder so offline runs and logs persist.
+
+## Current guidance
+
+- keep one training job per runtime
+- use `colab_strongest_v2.toml` for the main training lane
+- use `colab_efficiency_queue.toml` when the goal is to benchmark runtime ideas on Colab
+- keep `colab_hour.toml` around as the previous baseline lane for controlled A/B comparisons
+- keep the post-train opening-suite tournament gate fixed
+- compare champions through the promotion match, not by raw loss curves alone
+- if a run is expected to exceed 20 minutes, move it to Colab instead of local
+- if your repo folder is still under `/content/Hex-A-Toe`, move it into `/content/drive/MyDrive/Hex-A-Toe` before long runs so checkpoints actually persist
+- if the runtime comes up on a weak GPU, reject it immediately with `--minimum-gpu-tier` rather than burning the session

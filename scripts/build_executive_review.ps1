@@ -4,490 +4,371 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$PSNativeCommandUseErrorActionPreference = $false
 
 $repoResolved = (Resolve-Path $RepoPath).Path
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path $repoResolved "docs\executive-review.md"
 }
 
-function Parse-DoubleOrNull([string]$text, [string]$pattern) {
-    $match = [regex]::Match($text, $pattern)
-    if (!$match.Success) {
-        return $null
-    }
-    [double]::Parse($match.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture)
-}
+$venvPython = Join-Path $repoResolved ".venv\Scripts\python.exe"
+$python = if (Test-Path $venvPython) { $venvPython } else { "python" }
 
-function Parse-IntOrNull([string]$text, [string]$pattern) {
-    $match = [regex]::Match($text, $pattern)
-    if (!$match.Success) {
-        return $null
-    }
-    [int]$match.Groups[1].Value
-}
+@'
+from __future__ import annotations
 
-function Round-Value($value, [int]$digits = 2) {
-    if ($null -eq $value) {
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def load_json(repo: Path, relative: str):
+    path = repo / relative
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="ascii"))
+    except Exception:
+        return None
+
+
+def fmt_num(value, digits: int = 2) -> str:
+    if value is None:
         return "n/a"
-    }
-    return [Math]::Round([double]$value, $digits).ToString([System.Globalization.CultureInfo]::InvariantCulture)
-}
+    return f"{float(value):.{digits}f}"
 
-function To-DoubleOrNull($value) {
-    if ($null -eq $value) {
-        return $null
-    }
-    $text = "$value"
-    if ([string]::IsNullOrWhiteSpace($text)) {
-        return $null
-    }
-    $parsed = 0.0
-    if ([double]::TryParse($text, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$parsed)) {
-        return $parsed
-    }
-    if ([double]::TryParse($text, [ref]$parsed)) {
-        return $parsed
-    }
-    return $null
-}
 
-function To-DateOrNull($value) {
-    if ($null -eq $value) {
-        return $null
-    }
-    $text = "$value"
-    if ([string]::IsNullOrWhiteSpace($text)) {
-        return $null
-    }
-    try {
-        return [DateTime]::Parse($text).ToUniversalTime()
-    }
-    catch {
-        return $null
-    }
-}
-
-$autopilotRoot = Join-Path $repoResolved "artifacts\autopilot"
-$latestRunDir = Get-ChildItem -Path $autopilotRoot -Directory -Filter "run-*" -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-
-$meta = $null
-$lastMessage = ""
-$runState = "not_started"
-$runId = "n/a"
-$runStartedUtc = "n/a"
-$runDuration = "n/a"
-
-if ($null -ne $latestRunDir) {
-    $metaPath = Join-Path $latestRunDir.FullName "run.json"
-    $lastMessagePath = Join-Path $latestRunDir.FullName "last_message.txt"
-    if (Test-Path $metaPath) {
-        $meta = Get-Content -Raw $metaPath | ConvertFrom-Json
-        $runId = $meta.run_id
-        $runStartedUtc = $meta.started_utc
-        $runDuration = "$($meta.duration_minutes) minutes"
-        $process = Get-Process -Id $meta.pid -ErrorAction SilentlyContinue
-        $runState = if ($null -eq $process) { "completed_or_exited" } else { "running" }
-    }
-    if (Test-Path $lastMessagePath) {
-        $lastMessage = Get-Content -Raw $lastMessagePath
-    }
-}
-
-$beforeMs = Parse-DoubleOrNull $lastMessage 'Before:\s+about\s+[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*ms/call'
-$afterMs = Parse-DoubleOrNull $lastMessage 'After:\s+about\s+[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*ms/call'
-$speedupX = Parse-DoubleOrNull $lastMessage 'Net:\s+about\s+[^0-9]*([0-9]+(?:\.[0-9]+)?)x'
-$passedTests = Parse-IntOrNull $lastMessage "([0-9]+)\s+passed"
-
-if ($null -eq $speedupX -and $null -ne $beforeMs -and $null -ne $afterMs -and $afterMs -gt 0) {
-    $speedupX = $beforeMs / $afterMs
-}
-
-$opportunities = @()
-if ($lastMessage -match "(?is)Top 3 Next Improvements(.*)$") {
-    $tail = $Matches[1]
-    $tailLines = $tail -split "`r?`n"
-    foreach ($line in $tailLines) {
-        $m = [regex]::Match($line.Trim(), "^\d+\.\s+(.+)$")
-        if ($m.Success) {
-            $opportunities += $m.Groups[1].Value.Trim()
-        }
-    }
-}
-if ($opportunities.Count -eq 0) {
-    $opportunities = @(
-        "Add state-signature caching across search and heuristic paths.",
-        "Improve runtime dispatch so `config.search.algorithm` drives actual engine selection.",
-        "Build a fast tactical benchmark path that always completes under 5 minutes."
+def _svg_escape(text: str) -> str:
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
     )
-}
 
-$eloSourcePaths = @()
-$eloSourceCount = 0
-$eloEntries = @()
-$eloLatest = $null
-$eloFiles = Get-ChildItem -Path (Join-Path $repoResolved "artifacts") -Recurse -File -Filter "elo_history.json" -ErrorAction SilentlyContinue
-if ($eloFiles.Count -gt 0) {
-    $dedupMap = @{}
-    foreach ($file in $eloFiles) {
-        try {
-            $raw = Get-Content -Raw $file.FullName
-            $parsed = ConvertFrom-Json $raw
-            if ($null -eq $parsed) {
-                continue
-            }
-            $arr = @($parsed)
-            if ($arr.Count -le 0) {
-                continue
-            }
-            $eloSourcePaths += $file.FullName
-            foreach ($entry in $arr) {
-                $tsKey = "$($entry.timestamp)"
-                $gamesKey = "$($entry.games)"
-                $agentAKey = if ($null -ne $entry.agent_a -and $null -ne $entry.agent_a.name) { "$($entry.agent_a.name)" } else { "n/a" }
-                $agentBKey = if ($null -ne $entry.agent_b -and $null -ne $entry.agent_b.name) { "$($entry.agent_b.name)" } else { "n/a" }
-                $eloKeyValue = To-DoubleOrNull $entry.final_elo_a
-                $wrKeyValue = To-DoubleOrNull $entry.win_rate_a
-                $eloKey = if ($null -eq $eloKeyValue) { "n/a" } else { [Math]::Round($eloKeyValue, 4).ToString([System.Globalization.CultureInfo]::InvariantCulture) }
-                $wrKey = if ($null -eq $wrKeyValue) { "n/a" } else { [Math]::Round($wrKeyValue, 4).ToString([System.Globalization.CultureInfo]::InvariantCulture) }
-                $entryKey = "$tsKey|$agentAKey|$agentBKey|$gamesKey|$eloKey|$wrKey"
-                if (-not $dedupMap.ContainsKey($entryKey)) {
-                    $dedupMap[$entryKey] = $entry
-                }
-            }
+
+def write_bar_chart(path: Path, title: str, labels: list[str], values: list[float], y_label: str) -> None:
+    width = 960
+    height = 480
+    left = 90
+    right = 24
+    top = 56
+    bottom = 86
+    chart_width = width - left - right
+    chart_height = height - top - bottom
+    max_value = max(max(values, default=1.0), 1.0)
+    bar_width = chart_width / max(len(values), 1) * 0.6
+    gap = chart_width / max(len(values), 1)
+    y_ticks = 5
+
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#f8f7f4"/>',
+        f'<text x="{width / 2}" y="28" text-anchor="middle" font-family="Georgia, serif" font-size="22" fill="#171717">{_svg_escape(title)}</text>',
+        f'<text x="20" y="{top + chart_height / 2}" transform="rotate(-90 20 {top + chart_height / 2})" text-anchor="middle" font-family="Georgia, serif" font-size="14" fill="#5f5a55">{_svg_escape(y_label)}</text>',
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + chart_height}" stroke="#6c6761" stroke-width="1.5"/>',
+        f'<line x1="{left}" y1="{top + chart_height}" x2="{left + chart_width}" y2="{top + chart_height}" stroke="#6c6761" stroke-width="1.5"/>',
+    ]
+
+    for tick in range(y_ticks + 1):
+        frac = tick / y_ticks
+        value = max_value * (1.0 - frac)
+        y = top + chart_height * frac
+        parts.append(f'<line x1="{left}" y1="{y:.1f}" x2="{left + chart_width}" y2="{y:.1f}" stroke="#ddd7cf" stroke-width="1"/>')
+        parts.append(f'<text x="{left - 10}" y="{y + 5:.1f}" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">{value:.0f}</text>')
+
+    for index, (label, value) in enumerate(zip(labels, values)):
+        x = left + gap * index + (gap - bar_width) / 2
+        bar_height = 0 if max_value <= 0 else (value / max_value) * chart_height
+        y = top + chart_height - bar_height
+        parts.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" height="{bar_height:.1f}" rx="8" fill="#1b5c75"/>')
+        parts.append(f'<text x="{x + bar_width / 2:.1f}" y="{y - 8:.1f}" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">{value:.1f}</text>')
+        parts.append(f'<text x="{x + bar_width / 2:.1f}" y="{top + chart_height + 24}" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">{_svg_escape(label)}</text>')
+
+    parts.append("</svg>")
+    path.write_text("\n".join(parts) + "\n", encoding="ascii")
+
+
+def write_line_chart(path: Path, title: str, labels: list[str], values: list[float], y_label: str) -> None:
+    width = 960
+    height = 480
+    left = 90
+    right = 24
+    top = 56
+    bottom = 86
+    chart_width = width - left - right
+    chart_height = height - top - bottom
+    max_value = max(max(values, default=1.0), 1.0)
+    y_ticks = 5
+
+    def point(index: int, value: float) -> tuple[float, float]:
+        if len(values) <= 1:
+            x = left + chart_width / 2
+        else:
+            x = left + (chart_width * index / (len(values) - 1))
+        y = top + chart_height - (0 if max_value <= 0 else (value / max_value) * chart_height)
+        return x, y
+
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        '<rect width="100%" height="100%" fill="#f8f7f4"/>',
+        f'<text x="{width / 2}" y="28" text-anchor="middle" font-family="Georgia, serif" font-size="22" fill="#171717">{_svg_escape(title)}</text>',
+        f'<text x="20" y="{top + chart_height / 2}" transform="rotate(-90 20 {top + chart_height / 2})" text-anchor="middle" font-family="Georgia, serif" font-size="14" fill="#5f5a55">{_svg_escape(y_label)}</text>',
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + chart_height}" stroke="#6c6761" stroke-width="1.5"/>',
+        f'<line x1="{left}" y1="{top + chart_height}" x2="{left + chart_width}" y2="{top + chart_height}" stroke="#6c6761" stroke-width="1.5"/>',
+    ]
+
+    for tick in range(y_ticks + 1):
+        frac = tick / y_ticks
+        value = max_value * (1.0 - frac)
+        y = top + chart_height * frac
+        parts.append(f'<line x1="{left}" y1="{y:.1f}" x2="{left + chart_width}" y2="{y:.1f}" stroke="#ddd7cf" stroke-width="1"/>')
+        parts.append(f'<text x="{left - 10}" y="{y + 5:.1f}" text-anchor="end" font-family="Georgia, serif" font-size="12" fill="#5f5a55">{value:.2f}</text>')
+
+    points = [point(index, value) for index, value in enumerate(values)]
+    if points:
+        point_string = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+        parts.append(f'<polyline fill="none" stroke="#1b5c75" stroke-width="3" points="{point_string}"/>')
+        for (x, y), value, label in zip(points, values, labels):
+            parts.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5" fill="#1b5c75"/>')
+            parts.append(f'<text x="{x:.1f}" y="{y - 10:.1f}" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#171717">{value:.2f}</text>')
+            parts.append(f'<text x="{x:.1f}" y="{top + chart_height + 24}" text-anchor="middle" font-family="Georgia, serif" font-size="12" fill="#5f5a55">{_svg_escape(label)}</text>')
+
+    parts.append("</svg>")
+    path.write_text("\n".join(parts) + "\n", encoding="ascii")
+
+
+repo = Path(sys.argv[1]).resolve()
+output = Path(sys.argv[2]).resolve()
+assets_dir = output.parent / "executive-review-assets"
+assets_dir.mkdir(parents=True, exist_ok=True)
+
+bootstrap = load_json(repo, "artifacts/bootstrap_alphazero_fast/metrics.json") or {}
+cycle_summary = load_json(repo, "artifacts/alphazero_cycle_fast/cycle_summary.json") or {}
+active_summary = load_json(repo, "artifacts/alphazero_cycle_20_fast/cycle_summary.json") or {}
+
+
+def gate_result(post: dict) -> str:
+    wins = post.get("checkpoint_wins")
+    losses = post.get("checkpoint_losses")
+    draws = post.get("checkpoint_draws")
+    if wins is None:
+        return "n/a"
+    return f"{wins}W {losses}L {draws}D"
+
+
+rows: list[dict] = []
+if bootstrap:
+    post = bootstrap.get("post_train_evaluation") or {}
+    rows.append(
+        {
+            "label": "bootstrap",
+            "examples": bootstrap.get("examples"),
+            "encoded": bootstrap.get("encoded_examples"),
+            "self_play_seconds": bootstrap.get("self_play_seconds"),
+            "total_seconds": bootstrap.get("total_seconds"),
+            "win_rate": float(post.get("checkpoint_win_rate", 0.0)) * 100.0,
+            "gate_result": gate_result(post) + " vs baseline",
         }
-        catch {
-            continue
+    )
+
+for cycle in cycle_summary.get("cycles", []):
+    metrics = cycle.get("metrics") or {}
+    post = cycle.get("post_train_evaluation") or {}
+    promotion = cycle.get("promotion") or {}
+    rows.append(
+        {
+            "label": f"cycle_{int(cycle.get('cycle_index', 0)):03d}",
+            "examples": metrics.get("examples"),
+            "encoded": metrics.get("encoded_examples"),
+            "self_play_seconds": metrics.get("self_play_seconds"),
+            "total_seconds": metrics.get("total_seconds"),
+            "win_rate": float(post.get("checkpoint_win_rate", 0.0)) * 100.0,
+            "gate_result": (
+                f"promoted {fmt_num(promotion.get('candidate_points'), 1)}-{fmt_num(promotion.get('incumbent_points'), 1)}"
+                if promotion.get("evaluated")
+                else gate_result(post) + " post-train gate"
+            ),
         }
-    }
-    if ($eloSourcePaths.Count -gt 0) {
-        $eloSourcePaths = @($eloSourcePaths | Sort-Object -Unique)
-        $eloSourceCount = $eloSourcePaths.Count
-    }
-    if ($dedupMap.Count -gt 0) {
-        $eloEntries = @($dedupMap.Values)
-        $eloEntries = @(
-            $eloEntries |
-                Sort-Object -Property @{Expression = { To-DateOrNull $_.timestamp }; Descending = $false}, @{Expression = { "$($_.timestamp)" }; Descending = $false}
+    )
+
+active_cycle = None
+if active_summary.get("cycles"):
+    active_cycle = active_summary["cycles"][-1]
+    metrics = active_cycle.get("metrics") or {}
+    post = active_cycle.get("post_train_evaluation") or {}
+    rows.append(
+        {
+            "label": f"active_20_cycle_{int(active_cycle.get('cycle_index', 0)):03d}",
+            "examples": metrics.get("examples"),
+            "encoded": metrics.get("encoded_examples"),
+            "self_play_seconds": metrics.get("self_play_seconds"),
+            "total_seconds": metrics.get("total_seconds"),
+            "win_rate": float(post.get("checkpoint_win_rate", 0.0)) * 100.0,
+            "gate_result": gate_result(post) + " post-train gate",
+        }
+    )
+
+active_cycle_rows: list[dict] = []
+for cycle in active_summary.get("cycles", []):
+    metrics = cycle.get("metrics") or {}
+    post = cycle.get("post_train_evaluation") or {}
+    active_cycle_rows.append(
+        {
+            "label": f"{int(cycle.get('cycle_index', 0)):02d}",
+            "policy_loss": float(metrics.get("final_policy_loss", 0.0)),
+            "value_loss": float(metrics.get("final_value_loss", 0.0)),
+            "draw_rate": float(post.get("draw_rate", 0.0)) * 100.0,
+        }
+    )
+
+generated_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+lines: list[str] = []
+lines.append("# Executive Review")
+lines.append("")
+lines.append(f"- Generated (UTC): {generated_utc}")
+lines.append("- Active lane: `15 x 15` bounded board, `guided_mcts`, AlphaZero-style self-play")
+lines.append("- Main comparison lane: `configs/fast.toml` plus `configs/experiments/conversion_opening_suite.toml`")
+lines.append("")
+lines.append("## TL;DR")
+lines.append("")
+lines.append("- The repo is now centered on one active engine path instead of several stale comparison lanes.")
+if len(rows) >= 3:
+    lines.append("- We have a validated improvement signal: `artifacts/alphazero_cycle_fast/cycle_002/promotion_match/summary.json` shows cycle 2 beating cycle 1 by `4.5 - 1.5`.")
+if active_summary:
+    active_cycles_completed = int(active_summary.get("cycles_completed", 0))
+    if active_cycles_completed >= 20:
+        lines.append("- The `20`-cycle run completed successfully and finished with cycle `020` as the best checkpoint under `artifacts/alphazero_cycle_20_fast/cycle_summary.json`.")
+    else:
+        lines.append(
+            f"- The live `20`-cycle run has completed `{active_cycles_completed}` cycles so far and is still progressing under `artifacts/alphazero_cycle_20_fast/cycle_summary.json`."
         )
-        if ($eloEntries.Count -gt 0) {
-            $eloLatest = $eloEntries[-1]
-        }
-    }
-}
+lines.append("- The default bounded lane ends on `win` or `board_exhausted`, not on an artificial ply cap.")
+lines.append("")
+lines.append("## Current Snapshot")
+lines.append("")
+lines.append("| Run | Examples | Encoded | Self-play s | Total s | Gate result |")
+lines.append("|---|---:|---:|---:|---:|---|")
+for row in rows:
+    lines.append(
+        f"| {row['label']} | {row['examples']} | {row['encoded']} | "
+        f"{fmt_num(row['self_play_seconds'])} | {fmt_num(row['total_seconds'])} | {row['gate_result']} |"
+    )
+lines.append("")
+lines.append("## Graphs")
+lines.append("")
 
-$tournamentSummaryPath = Join-Path $repoResolved "artifacts\tournament\latest\summary.json"
-$tournamentSummary = $null
-$tournamentEntries = @()
-$tournamentLeader = $null
-$tournamentGeneratedUtc = ""
-$tournamentRandom = $null
-if (Test-Path $tournamentSummaryPath) {
-    try {
-        $tournamentSummary = Get-Content -Raw $tournamentSummaryPath | ConvertFrom-Json
-        if ($null -ne $tournamentSummary) {
-            $tournamentEntries = @($tournamentSummary.leaderboard)
-            if ($tournamentEntries.Count -gt 0) {
-                $tournamentLeader = $tournamentEntries[0]
-            }
-            $tournamentGeneratedUtc = "$($tournamentSummary.timestamp)"
-            $tournamentRandom = $tournamentEntries | Where-Object { "$($_.name)" -match "^random" } | Select-Object -First 1
-        }
-    }
-    catch {
-        $tournamentSummary = $null
-        $tournamentEntries = @()
-        $tournamentLeader = $null
-    }
-}
+write_bar_chart(
+    assets_dir / "training-examples.svg",
+    "Training Examples",
+    [row["label"] for row in rows],
+    [float(row["examples"] or 0.0) for row in rows],
+    "Examples",
+)
+lines.append("![Training Examples](executive-review-assets/training-examples.svg)")
+lines.append("")
 
-Push-Location $repoResolved
-try {
-    $changedFiles = @(git -c core.safecrlf=false diff --name-only 2>$null)
-    $changedCount = ($changedFiles | Where-Object { $_ -and $_.Trim() -ne "" }).Count
-    $shortStat = git -c core.safecrlf=false diff --shortstat 2>$null
-}
-finally {
-    Pop-Location
-}
+write_bar_chart(
+    assets_dir / "post-train-win-rate.svg",
+    "Post-Train Win Rate",
+    [row["label"] for row in rows],
+    [float(row["win_rate"] or 0.0) for row in rows],
+    "Win rate (%)",
+)
+lines.append("![Post-Train Win Rate](executive-review-assets/post-train-win-rate.svg)")
+lines.append("")
 
-$insertions = Parse-IntOrNull ($shortStat -join "`n") "([0-9]+)\s+insertions?\(\+\)"
-$deletions = Parse-IntOrNull ($shortStat -join "`n") "([0-9]+)\s+deletions?\(-\)"
-$filesChangedStat = Parse-IntOrNull ($shortStat -join "`n") "([0-9]+)\s+files?\s+changed"
+write_bar_chart(
+    assets_dir / "cycle-runtime.svg",
+    "Cycle Runtime",
+    [row["label"] for row in rows],
+    [float(row["total_seconds"] or 0.0) for row in rows],
+    "Total seconds",
+)
+lines.append("![Cycle Runtime](executive-review-assets/cycle-runtime.svg)")
+lines.append("")
 
-$generatedUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-$perfBefore = if ($null -eq $beforeMs) { "n/a" } else { (Round-Value $beforeMs 2) }
-$perfAfter = if ($null -eq $afterMs) { "n/a" } else { (Round-Value $afterMs 2) }
-$perfSpeedup = if ($null -eq $speedupX) { "n/a" } else { ((Round-Value $speedupX 2) + "x") }
-$testsCell = if ($null -eq $passedTests) { "n/a" } else { "$passedTests passed" }
+if active_cycle_rows:
+    write_line_chart(
+        assets_dir / "policy-loss-by-cycle.svg",
+        "Policy Loss By Cycle",
+        [row["label"] for row in active_cycle_rows],
+        [row["policy_loss"] for row in active_cycle_rows],
+        "Loss",
+    )
+    lines.append("![Policy Loss By Cycle](executive-review-assets/policy-loss-by-cycle.svg)")
+    lines.append("")
 
-$lines = @()
-$lines += "# Executive Review"
-$lines += ""
-$lines += "- Generated (UTC): $generatedUtc"
-$lines += "- Goal: strongest practical Hex6 engine for https://www.youtube.com/watch?v=Ob6QINTMIOA&t=595s"
-$lines += ""
-$lines += "## Snapshot"
-$lines += ""
-$lines += "| Metric | Value |"
-$lines += "|---|---|"
-$lines += "| Active run id | $runId |"
-$lines += "| Run state | $runState |"
-$lines += "| Run started (UTC) | $runStartedUtc |"
-$lines += "| Planned run duration | $runDuration |"
-$lines += "| Search latency before (ms/call) | $perfBefore |"
-$lines += "| Search latency after (ms/call) | $perfAfter |"
-$lines += "| Observed speedup | $perfSpeedup |"
-$lines += "| Targeted validation tests | $testsCell |"
-$lines += "| Working-tree changed files (current) | $changedCount |"
-$lines += "| Diff shortstat | $($shortStat -join ' ') |"
-if ($eloEntries.Count -gt 0) {
-    $latestElo = To-DoubleOrNull $eloLatest.final_elo_a
-    $latestWinRate = To-DoubleOrNull $eloLatest.win_rate_a
-    $earliestTs = "$($eloEntries[0].timestamp)"
-    $latestTs = "$($eloLatest.timestamp)"
-    $lines += "| Elo source files | $eloSourceCount |"
-    $lines += "| Elo samples available | $($eloEntries.Count) |"
-    $lines += "| Latest Elo | $(if ($null -eq $latestElo) { 'n/a' } else { [Math]::Round($latestElo, 2).ToString([System.Globalization.CultureInfo]::InvariantCulture) }) |"
-    $lines += "| Latest win rate | $(if ($null -eq $latestWinRate) { 'n/a' } else { [Math]::Round($latestWinRate, 3).ToString([System.Globalization.CultureInfo]::InvariantCulture) }) |"
-    $lines += "| Earliest Elo timestamp (UTC) | $earliestTs |"
-    $lines += "| Latest Elo timestamp (UTC) | $latestTs |"
-}
-if ($tournamentEntries.Count -gt 0) {
-    $leaderName = "$($tournamentLeader.name)"
-    $leaderPoints = Round-Value (To-DoubleOrNull $tournamentLeader.points) 3
-    $lines += "| Tournament participants | $($tournamentEntries.Count) |"
-    $lines += "| Tournament leader | $leaderName |"
-    $lines += "| Tournament leader points | $leaderPoints |"
-    if (-not [string]::IsNullOrWhiteSpace($tournamentGeneratedUtc)) {
-        $lines += "| Tournament timestamp (UTC) | $tournamentGeneratedUtc |"
-    }
-}
-$lines += ""
+    write_line_chart(
+        assets_dir / "value-loss-by-cycle.svg",
+        "Value Loss By Cycle",
+        [row["label"] for row in active_cycle_rows],
+        [row["value_loss"] for row in active_cycle_rows],
+        "Loss",
+    )
+    lines.append("![Value Loss By Cycle](executive-review-assets/value-loss-by-cycle.svg)")
+    lines.append("")
 
-if ($null -ne $beforeMs -and $null -ne $afterMs) {
-    $maxAxis = [Math]::Ceiling(([Math]::Max($beforeMs, $afterMs) + 50.0) / 50.0) * 50
-    $lines += "## Graphs"
-    $lines += ""
-    $lines += '```mermaid'
-    $lines += "xychart-beta"
-    $lines += "title ""Baseline Turn Search Latency (ms/call)"""
-    $lines += "x-axis [""Before"", ""After""]"
-    $lines += "y-axis ""ms/call"" 0 --> $maxAxis"
-    $lines += "bar [$([Math]::Round($beforeMs,2).ToString([System.Globalization.CultureInfo]::InvariantCulture)), $([Math]::Round($afterMs,2).ToString([System.Globalization.CultureInfo]::InvariantCulture))]"
-    $lines += '```'
-    $lines += ""
-}
+    write_line_chart(
+        assets_dir / "draw-rate-by-cycle.svg",
+        "Draw Rate By Cycle",
+        [row["label"] for row in active_cycle_rows],
+        [row["draw_rate"] for row in active_cycle_rows],
+        "Draw rate (%)",
+    )
+    lines.append("![Draw Rate By Cycle](executive-review-assets/draw-rate-by-cycle.svg)")
+    lines.append("")
 
-if ($null -ne $insertions -or $null -ne $deletions) {
-    $ins = if ($null -eq $insertions) { 0 } else { $insertions }
-    $del = if ($null -eq $deletions) { 0 } else { $deletions }
-    $axisMax = [Math]::Max(10, ([Math]::Ceiling(([Math]::Max($ins, $del) + 10) / 10) * 10))
-    if (-not ($lines -contains "## Graphs")) {
-        $lines += "## Graphs"
-        $lines += ""
-    }
-    $lines += '```mermaid'
-    $lines += "xychart-beta"
-    $lines += "title ""Current Diff Volume"""
-    $lines += "x-axis [""Insertions"", ""Deletions""]"
-    $lines += "y-axis ""Lines"" 0 --> $axisMax"
-    $lines += "bar [$ins, $del]"
-    $lines += '```'
-    $lines += ""
-}
+promotion = None
+for cycle in cycle_summary.get("cycles", []):
+    if (cycle.get("promotion") or {}).get("evaluated"):
+        promotion = cycle.get("promotion") or {}
+        break
+if promotion:
+    write_bar_chart(
+        assets_dir / "promotion-match.svg",
+        "Promotion Match",
+        ["candidate", "incumbent"],
+        [
+            float(promotion.get("candidate_points", 0.0)),
+            float(promotion.get("incumbent_points", 0.0)),
+        ],
+        "Points",
+    )
+    lines.append("![Promotion Match](executive-review-assets/promotion-match.svg)")
+    lines.append("")
 
-if ($tournamentEntries.Count -gt 0) {
-    $topTournament = @($tournamentEntries)
-    if ($topTournament.Count -gt 8) {
-        $topTournament = $topTournament[0..7]
-    }
-    $tLabels = @()
-    $tPoints = @()
-    foreach ($entry in $topTournament) {
-        $label = "$($entry.name)".Replace('"', "'")
-        $tLabels += """$label"""
-        $pointVal = To-DoubleOrNull $entry.points
-        if ($null -eq $pointVal) {
-            $pointVal = 0.0
-        }
-        $tPoints += [Math]::Round($pointVal, 3).ToString([System.Globalization.CultureInfo]::InvariantCulture)
-    }
-    $maxPoints = @($topTournament | ForEach-Object {
-            $tmp = To-DoubleOrNull $_.points
-            if ($null -eq $tmp) { 0.0 } else { $tmp }
-        } | Measure-Object -Maximum).Maximum
-    if ($null -eq $maxPoints) {
-        $maxPoints = 1.0
-    }
-    $pointAxis = [Math]::Ceiling(($maxPoints + 0.5) * 2) / 2
-    if ($pointAxis -lt 1) {
-        $pointAxis = 1
-    }
+lines.append("## What Changed")
+lines.append("")
+lines.append("- The active repo path is now the AlphaZero-style lane only.")
+lines.append("- Old `50x50`, `fast_deep`, and `fast_wide` comparison configs were removed.")
+lines.append("- Docs and tests now point at the default `15 x 15` bounded board and the current guided-MCTS training flow.")
+lines.append("- The executive review now tracks the artifacts that actually matter for this repo today.")
+lines.append("")
+lines.append("## Current Read")
+lines.append("")
+lines.append("- The best validated improvement signal is still the two-cycle run at `artifacts/alphazero_cycle_fast/cycle_summary.json`.")
+if active_summary:
+    if int(active_summary.get("cycles_completed", 0)) >= 20:
+        lines.append("- The finished `20`-cycle run is now the main local measurement for whether longer training keeps helping.")
+    else:
+        lines.append("- The active `20`-cycle run is the longer measurement for \"does more training keep helping?\" and is still in progress.")
+if active_cycle_rows:
+    lines.append("- The loss charts are one point per cycle, not dense within-cycle curves, because the current fast lane trains for `epochs = 1`.")
+lines.append("- The fixed opening-suite gate remains the right short-loop comparison lane because it is cheap, repeatable, and avoids the old empty-board timeout problem.")
+lines.append("")
+lines.append("## Next Moves")
+lines.append("")
+if active_summary and int(active_summary.get("cycles_completed", 0)) >= 20:
+    lines.append("- Use the finished `20`-cycle run as the new baseline and compare future changes against `cycle_020`.")
+else:
+    lines.append("- Let the `20`-cycle run finish and compare promotion outcomes across cycles.")
+lines.append("- Keep the post-train tournament gate fixed so cycle-to-cycle changes stay comparable.")
+lines.append("- Only add new experiment branches if they produce a better champion than the current active lane.")
 
-    if (-not ($lines -contains "## Graphs")) {
-        $lines += "## Graphs"
-        $lines += ""
-    }
-    $lines += '```mermaid'
-    $lines += "xychart-beta"
-    $lines += "title ""Tournament Leaderboard Points"""
-    $lines += "x-axis [$($tLabels -join ', ')]"
-    $lines += "y-axis ""Points"" 0 --> $pointAxis"
-    $lines += "bar [$($tPoints -join ', ')]"
-    $lines += '```'
-    $lines += ""
-}
-
-if ($eloEntries.Count -gt 0) {
-    $graphSlice = @($eloEntries)
-    if ($graphSlice.Count -gt 24) {
-        $graphSlice = $graphSlice[($graphSlice.Count - 24)..($graphSlice.Count - 1)]
-    }
-
-    $labels = @()
-    $eloVals = @()
-    $winVals = @()
-    foreach ($entry in $graphSlice) {
-        $ts = To-DateOrNull $entry.timestamp
-        if ($null -eq $ts) {
-            $labels += """unknown"""
-        }
-        else {
-            $labels += """$($ts.ToString('yyyy-MM-dd HH:mm\Z'))"""
-        }
-        $eloVal = To-DoubleOrNull $entry.final_elo_a
-        if ($null -eq $eloVal) {
-            $eloVal = 0.0
-        }
-        $eloVals += [Math]::Round($eloVal, 2).ToString([System.Globalization.CultureInfo]::InvariantCulture)
-        $winVal = To-DoubleOrNull $entry.win_rate_a
-        if ($null -eq $winVal) {
-            $winVal = 0.0
-        }
-        $winVals += [Math]::Round($winVal, 3).ToString([System.Globalization.CultureInfo]::InvariantCulture)
-    }
-
-    $eloOnly = @()
-    foreach ($entry in $graphSlice) {
-        $tmp = To-DoubleOrNull $entry.final_elo_a
-        if ($null -ne $tmp) {
-            $eloOnly += $tmp
-        }
-    }
-    if ($eloOnly.Count -eq 0) {
-        $eloOnly = @(1200.0)
-    }
-    $eloMin = [Math]::Floor(((($eloOnly | Measure-Object -Minimum).Minimum) - 20.0) / 10.0) * 10
-    $eloMax = [Math]::Ceiling(((($eloOnly | Measure-Object -Maximum).Maximum) + 20.0) / 10.0) * 10
-    if ($eloMax -le $eloMin) {
-        $eloMax = $eloMin + 10
-    }
-
-    if (-not ($lines -contains "## Graphs")) {
-        $lines += "## Graphs"
-        $lines += ""
-    }
-    $lines += '```mermaid'
-    $lines += "xychart-beta"
-    $lines += "title ""Elo Trend (All History Files, UTC)"""
-    $lines += "x-axis [$($labels -join ', ')]"
-    $lines += "y-axis ""Elo"" $([int]$eloMin) --> $([int]$eloMax)"
-    $lines += "line [$($eloVals -join ', ')]"
-    $lines += '```'
-    $lines += ""
-
-    $lines += '```mermaid'
-    $lines += "xychart-beta"
-    $lines += "title ""Win Rate Trend (agent_a)"""
-    $lines += "x-axis [$($labels -join ', ')]"
-    $lines += "y-axis ""Win rate"" 0 --> 1"
-    $lines += "line [$($winVals -join ', ')]"
-    $lines += '```'
-    $lines += ""
-
-    $lines += "## Elo Trend Data"
-    $lines += ""
-    $lines += "- Source files scanned: $eloSourceCount"
-    foreach ($sourcePath in $eloSourcePaths) {
-        $lines += ('- `' + $sourcePath + '`')
-    }
-    $lines += ""
-    $lines += "| Timestamp (UTC) | Elo | Win Rate | Games | Agent A |"
-    $lines += "|---|---:|---:|---:|---|"
-    foreach ($entry in $graphSlice) {
-        $tsText = "$($entry.timestamp)"
-        $eloText = Round-Value (To-DoubleOrNull $entry.final_elo_a) 2
-        $wrText = Round-Value (To-DoubleOrNull $entry.win_rate_a) 3
-        $gamesText = "$($entry.games)"
-        $agentText = if ($null -ne $entry.agent_a -and $null -ne $entry.agent_a.name) { "$($entry.agent_a.name)" } else { "n/a" }
-        $lines += "| $tsText | $eloText | $wrText | $gamesText | $agentText |"
-    }
-    $lines += ""
-}
-
-if ($tournamentEntries.Count -gt 0) {
-    $lines += "## Tournament Snapshot"
-    $lines += ""
-    $lines += ('- Summary: `' + $tournamentSummaryPath + '`')
-    $lines += "| Rank | Agent | Kind | Points | Win Rate | W-L-D |"
-    $lines += "|---:|---|---|---:|---:|---|"
-    for ($rank = 0; $rank -lt $tournamentEntries.Count; $rank++) {
-        $entry = $tournamentEntries[$rank]
-        $name = "$($entry.name)"
-        $kind = "$($entry.kind)"
-        $points = Round-Value (To-DoubleOrNull $entry.points) 3
-        $winRate = Round-Value (To-DoubleOrNull $entry.win_rate) 3
-        $w = "$($entry.wins)"
-        $l = "$($entry.losses)"
-        $d = "$($entry.draws)"
-        $lines += "| $($rank + 1) | $name | $kind | $points | $winRate | $w-$l-$d |"
-    }
-    $lines += ""
-}
-
-$lines += "## Strongest Strengths"
-$lines += ""
-if ($null -ne $speedupX) {
-    $lines += "- Search candidate evaluation hot path improved by about $([Math]::Round($speedupX,2).ToString([System.Globalization.CultureInfo]::InvariantCulture))x in the latest run."
-}
-if ($null -ne $passedTests) {
-    $lines += "- Focused engine/search regression tests passed ($passedTests total in the targeted validation slice)."
-}
-$lines += "- Multi-agent YOLO orchestration is running continuously with automated status/output capture."
-if ($tournamentEntries.Count -gt 0) {
-    $lines += "- Competitive benchmarking now includes random-opponent and multi-checkpoint tournament results."
-}
-$lines += ""
-$lines += "## Best Opportunities"
-$lines += ""
-for ($i = 0; $i -lt [Math]::Min(3, $opportunities.Count); $i++) {
-    $lines += "- $($opportunities[$i])"
-}
-$lines += ""
-$lines += "## Operational Notes"
-$lines += ""
-$lines += '- Full `run_search_matrix` throughput is still the bottleneck in fast feedback loops.'
-$lines += "- Prioritize improvements that reduce full-eval runtime while preserving tactical strength."
-if ($eloEntries.Count -gt 0) {
-    $lines += "- Elo history is tracked and timestamped; review file source shown above."
-}
-else {
-    $lines += "- No Elo history file found yet under `artifacts/**/elo_history.json`; run arena/cycle eval to start trend tracking."
-}
-if ($tournamentEntries.Count -gt 0) {
-    $lines += '- Tournament leaderboard is refreshed from `artifacts/tournament/latest/summary.json`.'
-}
-else {
-    $lines += '- No tournament summary found yet; run `scripts/run_competitive_eval.ps1` to populate it.'
-}
-
-$outputDir = Split-Path -Parent $OutputPath
-if (!(Test-Path $outputDir)) {
-    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-}
-
-$lines -join "`n" | Set-Content -Path $OutputPath -Encoding ascii
-Write-Output "Wrote executive review: $OutputPath"
+output.parent.mkdir(parents=True, exist_ok=True)
+output.write_text("\n".join(lines) + "\n", encoding="ascii")
+print(f"Wrote executive review: {output}")
+'@ | & $python - $repoResolved $OutputPath

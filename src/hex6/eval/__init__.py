@@ -18,6 +18,7 @@ from .tournament import (
     TournamentParticipant,
     build_participants,
     discover_checkpoints,
+    evaluate_checkpoint_with_tournament_gate,
     run_round_robin_tournament,
 )
 
@@ -29,6 +30,7 @@ __all__ = [
     "build_participants",
     "build_random_agent",
     "discover_checkpoints",
+    "evaluate_checkpoint_with_tournament_gate",
     "evaluate_checkpoint_against_baseline",
     "evaluate_checkpoint_against_opponent",
     "play_game",

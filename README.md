@@ -1,143 +1,150 @@
 # Hex6 Bot
 
-Research scaffold for a modular bot for the hexagonal `6 in a row` variant discussed in
-the `can tic-tac-toe, with hexagons?` video.
+Hex6 Bot is a config-first research repository for a sparse-board hexagonal connection game and its training stack.
+The current default lane is a bounded `15 x 15` board, AlphaZero-style self-play, and a web surface for local play
+and engine-backed demos.
 
-## Current goals
+## Quick Start
 
-- Keep all key game/search/model assumptions in configuration files.
-- Treat the board as sparse and effectively infinite.
-- Explore candidate generation with live cells, dead zones, and long-range "island" ideas.
-- Keep the codebase modular, importable, and easy to expand later.
+Python `3.11` is the intended local version.
 
-## Local environment
-
-The repository is set up for a dedicated Python `3.11` virtual environment:
+If you want CUDA, install the appropriate PyTorch wheel first from the official PyTorch selector. A plain
+`pip install -e .[dev]` will otherwise install the default wheel for your platform. This repo now treats
+the local machine as a development box only: use it for tests, website work, and CPU-only debugging, and
+run all real training/evaluation/efficiency experiments on Colab.
 
 ```powershell
 .venv\Scripts\Activate.ps1
 python -m pip install -e .[dev]
-```
-
-`3.11` is intentional because the current machine also has `3.14`, which is a poor default
-for GPU ML packages.
-
-## AI agent quickstart
-
-- Agent contract and invariants: `AGENTS.md`
-- Task-specific edit/test recipes: `docs/ai-agent-workflows.md`
-- Multi-agent orchestration setup: `docs/codex-orchestration.md`
-- Executive status snapshot (including Elo-over-time trend): `docs/executive-review.md`
-- Canonical command reference: `docs/tools.md`
-
-Recommended pre-change check:
-
-```powershell
 .venv\Scripts\ruff check .
 .venv\Scripts\python -m pytest
 ```
 
-Lightweight local background setup (Colab watch + local web app):
+## Repository Map
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup_automation_tasks.ps1
-```
+Top-level entrypoints:
 
-This removes the legacy heavy local automation and installs Startup launchers
-for `watch_status` plus the local website. Heavy training/eval is intended to
-run in Colab.
+- `app.py`: Vercel/hosted web entrypoint.
+- `AGENTS.md`: repo contract and AI-oriented guardrails.
+- `CONTRIBUTING.md`: contributor workflow and PR expectations.
+- `configs/`: runtime profiles and experiment matrices.
+- `docs/`: architecture, workflow, and experiment notes.
+- `scripts/`: utility PowerShell scripts for report generation and maintenance.
+- `src/hex6/`: application package.
+- `tests/`: unit and integration coverage.
 
-## Repository map
+Package map:
 
-- `configs/default.toml`: game, search, training, and prototype assumptions.
-- `configs/fast.toml`: reduced profile for fast local/Colab iteration.
-- `configs/colab.toml`: medium-scale Colab training profile.
-- `configs/colab_hour.toml`: longer Colab cycle profile with post-cycle Elo tracking.
-- `configs/play.toml`: local website/play profile.
-- `docs/game-exploration.md`: working notes about the game and the search problem.
-- `docs/architecture.md`: package boundaries and intended module responsibilities.
-- `docs/roadmap.md`: staged implementation plan.
-- `docs/5-hour-sprint.md`: time-boxed execution plan with feedback checkpoints.
-- `docs/colab.md`: Colab setup and training flow.
-- `docs/tools.md`: command reference for training, evaluation, deployment, and local play.
-- `docs/experiment-report.md`: current interpretation of arena and search-matrix results.
-- `docs/vercel.md`: Vercel deployment notes for the website.
-- `docs/project-memory.md`: persistent project assumptions and operating constraints.
-- `src/hex6/integration/`: explicit status bridge between Colab and local tooling.
-- `src/hex6/web/`: local website and API for human-vs-bot play.
-- `src/hex6/prototype/candidate_explorer.py`: importable exploration module.
+- `src/hex6/config`: typed schema, config loading, and profile helpers.
+- `src/hex6/game`: axial coordinates, sparse state transitions, and win/draw rules.
+- `src/hex6/search`: baseline search, guided MCTS, model-guided search, and heuristics.
+- `src/hex6/nn`: PyTorch encoder/model code.
+- `src/hex6/train`: bootstrap and repeated self-play training loops.
+- `src/hex6/eval`: arena, tournament, opening-suite, and search-matrix evaluation.
+- `src/hex6/web`: Flask app, templates, and frontend assets.
+- `src/hex6/integration`: status transport and priority-loop integration.
+- `src/hex6/prototype`: importable experimental logic that has not fully graduated.
 
-## Fast bootstrap run
+## Config Profiles
 
-```powershell
-.venv\Scripts\python -m hex6.train.run_bootstrap --config configs/fast.toml --output artifacts/bootstrap_fast
-```
+Stable runtime profiles:
 
-## Colab bootstrap run
+- `configs/default.toml`: shared default research lane.
+- `configs/fast.toml`: fastest local training profile.
+- `configs/colab.toml`: medium Colab profile.
+- `configs/colab_hour.toml`: repeated cycle profile.
+- `configs/colab_strongest_v2.toml`: strongest current Colab training lane.
+- `configs/play.toml`: website/play profile.
 
-```powershell
-.venv\Scripts\python -m hex6.train.run_bootstrap --config configs/colab.toml --output artifacts/bootstrap_colab
-```
+Experiment and evaluation configs:
 
-## Colab hour-cycle run
+- `configs/experiments/search_matrix.toml`: search tuning sweeps.
+- `configs/experiments/*opening_suite*.toml`: fixed opening suites for training/eval/promotion.
+- `configs/fast_19.toml`, `configs/fast_25.toml`, `configs/local_16h_best.toml`: narrower comparison or long-run configs.
 
-```powershell
-.venv\Scripts\python -m hex6.train.run_cycle --config configs/colab_hour.toml --output-root artifacts/bootstrap_colab_hour --minutes 60
-```
+## Common Commands
 
-## Colab priority queue loop
-
-```powershell
-.venv\Scripts\python -m hex6.integration.run_priority_loop --queue configs/colab_job_queue.toml --state artifacts/colab_queue/state.json --status-backend github_branch
-```
-
-The Colab notebook prints repo freshness metadata (`head_short`, commit
-timestamps, latest-`origin/main` check) and writes the same data to
-`repo_version.json` in the output folder for each run.
-
-## Colab search-matrix run
-
-```powershell
-.venv\Scripts\python -m hex6.eval.run_search_matrix --matrix configs/experiments/search_matrix.toml --output artifacts/search_matrix_colab --run-id colab-search-matrix --status-backend github_branch
-```
-
-## Colab tournament run
-
-```powershell
-.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/colab_latest --games-per-match 4 --max-game-plies 120 --opening-suite configs/experiments/opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random --run-id colab-tournament --status-backend github_branch
-```
-
-## Competitive tournament eval
-
-```powershell
-.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/latest --games-per-match 4 --max-game-plies 120 --opening-suite configs/experiments/opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random
-```
-
-## Benchmark local runtime
-
-```powershell
-.venv\Scripts\python -m hex6.train.benchmark_runtime --config configs/default.toml --output artifacts/runtime_benchmark
-```
-
-Current best-known local training setting on this machine is:
-- `runtime.cpu_threads = 12`
-- `runtime.interop_threads = 2`
-- `training.self_play_workers = 4`
-- `training.data_loader_workers = 0`
-
-## Watch Colab status
-
-```powershell
-.venv\Scripts\python -m hex6.integration.watch_status --config configs/colab.toml --run-id latest
-```
-
-## Local website
+Website:
 
 ```powershell
 .venv\Scripts\python -m hex6.web.run_server --config configs/play.toml --host 127.0.0.1 --port 5000
 ```
 
-## Vercel website
+Fast bootstrap smoke:
 
-The repo includes a root `app.py` and build step for Vercel. See
-`docs/vercel.md`.
+```powershell
+.venv\Scripts\python -m hex6.train.run_bootstrap --config configs/fast.toml --output artifacts/bootstrap_fast
+```
+
+Repeated cycle:
+
+```powershell
+.venv\Scripts\python -m hex6.train.run_cycle --config configs/colab_strongest_v2.toml --output-root artifacts/bootstrap_colab_strongest_v2 --minutes 60
+```
+
+Preferred Colab cycle launch:
+
+```bash
+python scripts/colab_run.py cycle --repo-root /content/drive/MyDrive/Hex-A-Toe --minimum-gpu-tier V100 --config configs/colab_strongest_v2.toml --output-root artifacts/bootstrap_colab_strongest_v2 --minutes 60
+```
+
+Arena eval:
+
+```powershell
+.venv\Scripts\python -m hex6.eval.run_arena --config configs/colab.toml --checkpoint <checkpoint.pt> --output artifacts/arena
+```
+
+Tournament eval:
+
+```powershell
+.venv\Scripts\python -m hex6.eval.run_tournament --config configs/fast.toml --output artifacts/tournament/latest --games-per-match 4 --max-game-plies 0 --opening-suite configs/experiments/conversion_opening_suite.toml --max-checkpoints 3 --checkpoint-glob "artifacts/**/bootstrap_model.pt" --include-baseline --include-random
+```
+
+Search matrix:
+
+```powershell
+.venv\Scripts\python -m hex6.eval.run_search_matrix --matrix configs/experiments/search_matrix.toml --output artifacts/search_matrix
+```
+
+## Documentation Index
+
+Start here:
+
+- `docs/index.md`: repo navigation guide and document map.
+- `docs/architecture.md`: high-level package structure.
+- `docs/tools.md`: canonical commands.
+- `docs/ai-agent-workflows.md`: task-specific edit/test workflows.
+
+Operational docs:
+
+- `docs/colab.md`: Colab usage and remote workflow.
+- `docs/vercel.md`: deploy notes.
+- `docs/codex-orchestration.md`: orchestration notes for AI-assisted work.
+
+Research and status docs:
+
+- `docs/executive-review.md`
+- `docs/model-journey.md`
+- `docs/literature-improvements.md`
+- `docs/literature-roadmap.md`
+- `docs/next-experiment-options.md`
+- `docs/open-source-checklist.md`
+
+## Change Safety
+
+- Keep game/search/training assumptions in config when practical.
+- Update tests in the same change when behavior changes.
+- If the config schema changes, update affected profiles and tests together.
+- Do not commit generated artifacts under `artifacts/`.
+
+`AGENTS.md` is the authoritative repo contract for AI agents. `CONTRIBUTING.md` is the human-facing version.
+
+## Publishing Notes
+
+The repo is structurally ready for GitHub upload, but open-source publication still needs project-owner decisions:
+
+- choose a license and add `LICENSE`
+- set final repository URLs in `pyproject.toml`
+- decide whether to add `SECURITY.md` and a code of conduct
+
+Those remaining manual items are tracked in `docs/open-source-checklist.md`.

@@ -65,3 +65,20 @@ def test_candidate_scores_preserve_tactical_feature_counts() -> None:
     assert best.island_bonus == 0.0
     assert best.space_bonus == 1.0
     assert best.total == 129.7
+
+
+def test_bounded_candidate_scores_stay_inside_board_window() -> None:
+    config = load_config("configs/fast.toml")
+    position = SparsePosition(
+        stones={
+            (7, 7): "x",
+            (6, 7): "o",
+            (7, 6): "x",
+        },
+        to_play="x",
+    )
+
+    scored = position.candidate_scores(config)
+
+    assert scored
+    assert all(config.game.is_in_bounds(entry.cell) for entry in scored)

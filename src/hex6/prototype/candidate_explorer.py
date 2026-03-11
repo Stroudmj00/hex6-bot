@@ -6,11 +6,12 @@ importable and configurable while we learn more about the game.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from functools import lru_cache
+from dataclasses import dataclass, field
+from functools import cached_property, lru_cache
 from typing import Iterable, Literal
 
 from hex6.config import AppConfig
+from hex6.config.schema import GameConfig
 from hex6.game.axial import (
     AXIAL_DIRECTIONS,
     Coord,
@@ -22,6 +23,23 @@ from hex6.game.axial import (
 from hex6.game.state import GameState
 
 Player = Literal["x", "o"]
+
+_SPACE_NEIGHBOR_OFFSETS: tuple[Coord, ...] = tuple(
+    (dq, dr)
+    for dq in range(-2, 3)
+    for dr in range(-2, 3)
+    if not (dq == 0 and dr == 0) and hex_distance((0, 0), (dq, dr)) <= 2
+)
+
+
+@lru_cache(maxsize=32)
+def _offsets_within_hex_distance(distance: int) -> tuple[Coord, ...]:
+    return tuple(
+        (dq, dr)
+        for dq in range(-distance, distance + 1)
+        for dr in range(-distance, distance + 1)
+        if hex_distance((0, 0), (dq, dr)) <= distance
+    )
 
 
 @lru_cache(maxsize=512)
@@ -81,16 +99,46 @@ class SparsePosition:
     stones: dict[Coord, Player]
     to_play: Player = "x"
     placements_remaining: int = 2
+    _analysis_scope_cache: dict[tuple[GameConfig, int, int], tuple[int, int, int, int] | None] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _analysis_cells_cache: dict[tuple[GameConfig, int, int], set[Coord]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _windows_cache: dict[tuple[GameConfig, int], tuple[tuple[Coord, ...], ...]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _frontier_cache: dict[tuple[int, GameConfig | None], set[Coord]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _analysis_for_occupied_cache: dict[tuple[int, GameConfig | None], set[Coord]] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     @classmethod
     def from_game_state(cls, state: GameState) -> "SparsePosition":
         return cls(
-            stones=dict(state.stones),
+            stones=state.stones,
             to_play=state.to_play,
             placements_remaining=state.placements_remaining,
         )
 
-    @property
+    @cached_property
     def occupied(self) -> tuple[Coord, ...]:
         return tuple(self.stones.keys())
 
@@ -100,55 +148,104 @@ class SparsePosition:
     def empty(self, cell: Coord) -> bool:
         return cell not in self.stones
 
+    @cached_property
+    def occupied_set(self) -> set[Coord]:
+        return set(self.occupied)
+
+    @cached_property
     def occupied_bounds(self) -> tuple[int, int, int, int]:
-        if not self.stones:
+        if not self.occupied:
             return 0, 0, 0, 0
-        qs = [cell[0] for cell in self.stones]
-        rs = [cell[1] for cell in self.stones]
+        qs = [cell[0] for cell in self.occupied]
+        rs = [cell[1] for cell in self.occupied]
         return min(qs), max(qs), min(rs), max(rs)
 
-    def analysis_cells(self, config: AppConfig) -> set[Coord]:
-        min_q, max_q, min_r, max_r = self.occupied_bounds()
-        margin = config.prototype.outer_search_margin
-        if not self.stones:
-            origin_margin = max(config.prototype.analysis_margin, config.game.win_length)
-            return {
-                (q, r)
-                for q in range(-origin_margin, origin_margin + 1)
-                for r in range(-origin_margin, origin_margin + 1)
-            }
+    def _analysis_scope(self, config: AppConfig) -> tuple[int, int, int, int] | None:
+        key = (
+            config.game,
+            config.prototype.analysis_margin,
+            config.prototype.outer_search_margin,
+        )
+        cached = self._analysis_scope_cache.get(key)
+        if cached is not None:
+            return cached
 
-        return {
-            (q, r)
-            for q in range(min_q - margin, max_q + margin + 1)
-            for r in range(min_r - margin, max_r + margin + 1)
-        }
-
-    def windows_in_scope(self, config: AppConfig) -> tuple[tuple[Coord, ...], ...]:
-        if not self.stones:
+        if not self.occupied:
             origin_margin = max(config.prototype.analysis_margin, config.game.win_length)
-            return _windows_for_bounds(
-                -origin_margin,
-                origin_margin,
-                -origin_margin,
-                origin_margin,
-                config.game.win_length,
+            center_q, center_r = config.game.opening_cell()
+            scope = self._scope_bounds(
+                center_q - origin_margin,
+                center_q + origin_margin,
+                center_r - origin_margin,
+                center_r + origin_margin,
+                config.game,
+            )
+        else:
+            min_q, max_q, min_r, max_r = self.occupied_bounds
+            margin = config.prototype.outer_search_margin
+            scope = self._scope_bounds(
+                min_q - margin,
+                max_q + margin,
+                min_r - margin,
+                max_r + margin,
+                config.game,
             )
 
-        min_q, max_q, min_r, max_r = self.occupied_bounds()
-        margin = config.prototype.outer_search_margin
-        return _windows_for_bounds(
-            min_q - margin,
-            max_q + margin,
-            min_r - margin,
-            max_r + margin,
-            config.game.win_length,
+        self._analysis_scope_cache[key] = scope
+        return scope
+
+    def analysis_cells(self, config: AppConfig) -> set[Coord]:
+        key = (
+            config.game,
+            config.prototype.analysis_margin,
+            config.prototype.outer_search_margin,
         )
+        cached = self._analysis_cells_cache.get(key)
+        if cached is not None:
+            return cached
+
+        scope = self._analysis_scope(config)
+        if scope is None:
+            cells: set[Coord] = set()
+            self._analysis_cells_cache[key] = cells
+            return cells
+        min_q, max_q, min_r, max_r = scope
+        cells = {
+            (q, r)
+            for q in range(min_q, max_q + 1)
+            for r in range(min_r, max_r + 1)
+        }
+        self._analysis_cells_cache[key] = cells
+        return cells
+
+    def windows_in_scope(self, config: AppConfig) -> tuple[tuple[Coord, ...], ...]:
+        key = (
+            config.game,
+            config.prototype.outer_search_margin,
+        )
+        cached = self._windows_cache.get(key)
+        if cached is not None:
+            return cached
+
+        scope = self._analysis_scope(config)
+        if scope is None:
+            self._windows_cache[key] = ()
+            return ()
+
+        windows = _windows_for_bounds(*scope, config.game.win_length)
+        self._windows_cache[key] = windows
+        return windows
 
     def summarize_window(self, window: tuple[Coord, ...], player: Player) -> WindowSummary:
         opponent = self.opponent(player)
-        friendly_count = sum(1 for cell in window if self.stones.get(cell) == player)
-        enemy_count = sum(1 for cell in window if self.stones.get(cell) == opponent)
+        friendly_count = 0
+        enemy_count = 0
+        for cell in window:
+            occupant = self.stones.get(cell)
+            if occupant == player:
+                friendly_count += 1
+            elif occupant == opponent:
+                enemy_count += 1
         empty_count = len(window) - friendly_count - enemy_count
         return WindowSummary(window, friendly_count, enemy_count, empty_count)
 
@@ -161,11 +258,24 @@ class SparsePosition:
         player: Player,
     ) -> list[WindowSummary]:
         windows = tuple(windows)
-        return [
-            summary
-            for summary in (self.summarize_window(window, player) for window in windows)
-            if summary.enemy_count == 0
-        ]
+        opponent = self.opponent(player)
+        stones = self.stones
+        summaries: list[WindowSummary] = []
+        for window in windows:
+            friendly_count = 0
+            blocked = False
+            for cell in window:
+                occupant = stones.get(cell)
+                if occupant == player:
+                    friendly_count += 1
+                elif occupant == opponent:
+                    blocked = True
+                    break
+            if blocked:
+                continue
+            empty_count = len(window) - friendly_count
+            summaries.append(WindowSummary(window, friendly_count, 0, empty_count))
+        return summaries
 
     def live_cells(self, config: AppConfig) -> dict[Player, set[Coord]]:
         windows = self.windows_in_scope(config)
@@ -184,25 +294,44 @@ class SparsePosition:
         empty_cells = {cell for cell in self.analysis_cells(config) if self.empty(cell)}
         return empty_cells - live["x"] - live["o"]
 
-    def frontier_cells(self, distance: int) -> set[Coord]:
-        if not self.stones:
-            return {(0, 0)}
+    def frontier_cells(self, distance: int, game_config: GameConfig | None = None) -> set[Coord]:
+        cache_key = (distance, game_config)
+        cached = self._frontier_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
-        frontier: set[Coord] = set()
-        for cell in self.analysis_cells_for_occupied(distance):
-            if self.empty(cell):
-                frontier.add(cell)
+        if not self.stones:
+            opening_cell = game_config.opening_cell() if game_config is not None else (0, 0)
+            frontier = {opening_cell}
+            self._frontier_cache[cache_key] = frontier
+            return frontier
+
+        frontier = {
+            cell
+            for cell in self.analysis_cells_for_occupied(distance, game_config)
+            if self.empty(cell)
+        }
+        self._frontier_cache[cache_key] = frontier
         return frontier
 
-    def analysis_cells_for_occupied(self, distance: int) -> set[Coord]:
+    def analysis_cells_for_occupied(
+        self,
+        distance: int,
+        game_config: GameConfig | None = None,
+    ) -> set[Coord]:
+        cache_key = (distance, game_config)
+        cached = self._analysis_for_occupied_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         expanded: set[Coord] = set()
-        for origin in self.occupied:
-            for dq in range(-distance, distance + 1):
-                for dr in range(-distance, distance + 1):
-                    candidate = (origin[0] + dq, origin[1] + dr)
-                    if hex_distance(origin, candidate) <= distance:
-                        expanded.add(candidate)
-        return expanded
+        offsets = _offsets_within_hex_distance(distance)
+        for origin_q, origin_r in self.occupied:
+            for dq, dr in offsets:
+                expanded.add((origin_q + dq, origin_r + dr))
+        clipped = self._clip_to_bounds(expanded, game_config)
+        self._analysis_for_occupied_cache[cache_key] = clipped
+        return clipped
 
     def candidate_scores(self, config: AppConfig, player: Player | None = None) -> list[CandidateScore]:
         player = player or self.to_play
@@ -210,12 +339,11 @@ class SparsePosition:
         windows = tuple(self.windows_in_scope(config))
         analysis_cells = self.analysis_cells(config)
         empty_cells = {cell for cell in analysis_cells if self.empty(cell)}
-
-        player_counts = self._open_window_features(windows, player, empty_cells, config.heuristic.alignment_weights)
-        opponent_counts = self._open_window_features(
+        player_counts, opponent_counts = self._paired_open_window_features(
             windows,
+            player,
             opponent,
-            empty_cells,
+            config.heuristic.alignment_weights,
             config.heuristic.enemy_alignment_weights,
         )
         live = {
@@ -227,7 +355,7 @@ class SparsePosition:
             if config.prototype.prune_globally_dead_cells
             else set()
         )
-        frontier = self.frontier_cells(config.prototype.frontier_distance)
+        frontier = self.frontier_cells(config.prototype.frontier_distance, config.game)
 
         if not self.stones:
             candidates = set(frontier)
@@ -249,9 +377,10 @@ class SparsePosition:
 
         scored: list[CandidateScore] = []
         occupied = self.occupied
-        occupied_set = set(occupied)
-        frontier_contacts = self._frontier_contact_counts(candidates, occupied_set)
-        neighbor_counts = self._neighbor_counts_for_space(candidates, occupied_set)
+        frontier_contacts = self._frontier_contact_counts(candidates, self.occupied_set)
+        compute_space = config.scoring.space != 0.0
+        neighbor_counts = self._neighbor_counts_for_space(candidates, self.occupied_set) if compute_space else {}
+        compute_island_bonus = config.scoring.island != 0.0 and bool(occupied)
 
         for cell in sorted(candidates):
             friendly_window_count = player_counts["counts"].get(cell, 0)
@@ -261,8 +390,8 @@ class SparsePosition:
             friendly_pressure = player_counts["pressure"].get(cell, 0.0)
             enemy_pressure = opponent_counts["pressure"].get(cell, 0.0)
             intersection_count = friendly_window_count + enemy_window_count
-            island_bonus = self.island_bonus(config, cell, occupied)
-            space_bonus = float(max(0.0, 4.0 - neighbor_counts.get(cell, 0)))
+            island_bonus = self.island_bonus(config, cell, occupied) if compute_island_bonus else 0.0
+            space_bonus = float(max(0.0, 4.0 - neighbor_counts.get(cell, 0))) if compute_space else 0.0
             total = (
                 frontier_contacts.get(cell, 0) * config.scoring.frontier
                 + friendly_window_count * config.scoring.friendly_open_window
@@ -294,6 +423,84 @@ class SparsePosition:
 
         scored.sort(key=lambda score: score.total, reverse=True)
         return scored
+
+    def _paired_open_window_features(
+        self,
+        windows: Iterable[tuple[Coord, ...]],
+        player: Player,
+        opponent: Player,
+        player_alignment_weights: tuple[float, ...],
+        opponent_alignment_weights: tuple[float, ...],
+    ) -> tuple[
+        dict[str, dict[Coord, float] | dict[Coord, int] | set[Coord]],
+        dict[str, dict[Coord, float] | dict[Coord, int] | set[Coord]],
+    ]:
+        windows = tuple(windows)
+        player_counts: dict[Coord, int] = {}
+        player_best_alignment: dict[Coord, int] = {}
+        player_pressure: dict[Coord, float] = {}
+
+        opponent_counts: dict[Coord, int] = {}
+        opponent_best_alignment: dict[Coord, int] = {}
+        opponent_pressure: dict[Coord, float] = {}
+
+        stones = self.stones
+        for window in windows:
+            player_count = 0
+            opponent_count = 0
+            empty_in_window: list[Coord] = []
+            blocked = False
+
+            for cell in window:
+                occupant = stones.get(cell)
+                if occupant == player:
+                    player_count += 1
+                    if opponent_count != 0:
+                        blocked = True
+                        break
+                elif occupant == opponent:
+                    opponent_count += 1
+                    if player_count != 0:
+                        blocked = True
+                        break
+                else:
+                    empty_in_window.append(cell)
+
+            if blocked or not empty_in_window:
+                continue
+
+            if opponent_count == 0:
+                weight = player_alignment_weights[player_count]
+                for cell in empty_in_window:
+                    player_counts[cell] = player_counts.get(cell, 0) + 1
+                    best_alignment = player_best_alignment.get(cell)
+                    if best_alignment is None or player_count > best_alignment:
+                        player_best_alignment[cell] = player_count
+                    player_pressure[cell] = player_pressure.get(cell, 0.0) + weight
+
+            if player_count == 0:
+                weight = opponent_alignment_weights[opponent_count]
+                for cell in empty_in_window:
+                    opponent_counts[cell] = opponent_counts.get(cell, 0) + 1
+                    best_alignment = opponent_best_alignment.get(cell)
+                    if best_alignment is None or opponent_count > best_alignment:
+                        opponent_best_alignment[cell] = opponent_count
+                    opponent_pressure[cell] = opponent_pressure.get(cell, 0.0) + weight
+
+        return (
+            {
+                "counts": player_counts,
+                "best_alignment": player_best_alignment,
+                "pressure": player_pressure,
+                "open_windows": set(player_counts),
+            },
+            {
+                "counts": opponent_counts,
+                "best_alignment": opponent_best_alignment,
+                "pressure": opponent_pressure,
+                "open_windows": set(opponent_counts),
+            },
+        )
 
     def _open_window_features(
         self,
@@ -345,14 +552,15 @@ class SparsePosition:
             return {}
 
         neighbor_counts: dict[Coord, int] = {cell: 0 for cell in candidates}
-        occupied_cells = tuple(occupied)
+        occupied_cells = set(occupied)
         if not occupied_cells:
             return neighbor_counts
 
         for candidate in neighbor_counts:
+            cq, cr = candidate
             count = 0
-            for other in occupied_cells:
-                if other != candidate and hex_distance(other, candidate) <= 2:
+            for dq, dr in _SPACE_NEIGHBOR_OFFSETS:
+                if (cq + dq, cr + dr) in occupied_cells:
                     count += 1
             neighbor_counts[candidate] = count
         return neighbor_counts
@@ -401,6 +609,46 @@ class SparsePosition:
 
         return island_cells
 
+    def _clip_to_bounds(
+        self,
+        cells: Iterable[Coord],
+        game_config: GameConfig | None,
+    ) -> set[Coord]:
+        clipped = set(cells)
+        if game_config is None:
+            return clipped
+        bounds = game_config.bounds()
+        if bounds is None:
+            return clipped
+        min_q, max_q, min_r, max_r = bounds
+        return {
+            cell
+            for cell in clipped
+            if min_q <= cell[0] <= max_q and min_r <= cell[1] <= max_r
+        }
+
+    def _scope_bounds(
+        self,
+        min_q: int,
+        max_q: int,
+        min_r: int,
+        max_r: int,
+        game_config: GameConfig,
+    ) -> tuple[int, int, int, int] | None:
+        bounds = game_config.bounds()
+        if bounds is None:
+            return min_q, max_q, min_r, max_r
+        board_min_q, board_max_q, board_min_r, board_max_r = bounds
+        scoped = (
+            max(min_q, board_min_q),
+            min(max_q, board_max_q),
+            max(min_r, board_min_r),
+            min(max_r, board_max_r),
+        )
+        if scoped[0] > scoped[1] or scoped[2] > scoped[3]:
+            return None
+        return scoped
+
     def frontier_contact_count(self, cell: Coord) -> int:
         return sum(1 for occupied in self.occupied if hex_distance(cell, occupied) <= 1)
 
@@ -418,7 +666,10 @@ class SparsePosition:
         # Favor cells with some room around them while avoiding extremely isolated noise.
         neighbor_count = sum(
             1
-            for other in self.analysis_cells_for_occupied(config.prototype.frontier_distance + 1)
+            for other in self.analysis_cells_for_occupied(
+                config.prototype.frontier_distance + 1,
+                config.game,
+            )
             if other != cell and hex_distance(cell, other) <= 2 and other in self.stones
         )
         return max(0.0, 4.0 - neighbor_count)

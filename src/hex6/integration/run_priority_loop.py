@@ -226,6 +226,38 @@ def build_job_command(job: JobSpec, python_exe: str, run_id: str, status_backend
             status_backend,
         ]
 
+    if kind == "runtime_benchmark":
+        command = [
+            python_exe,
+            "-m",
+            "hex6.train.benchmark_runtime",
+            "--config",
+            str(o.get("config", "configs/colab_strongest_v2.toml")),
+            "--output",
+            str(o.get("output", "artifacts/runtime_parallelism_colab")),
+        ]
+        for value in o.get("cpu_threads", [8]):
+            command.extend(["--cpu-threads", str(value)])
+        for value in o.get("interop_threads", [2]):
+            command.extend(["--interop-threads", str(value)])
+        for value in o.get("self_play_workers", [4, 8]):
+            command.extend(["--self-play-workers", str(value)])
+        for value in o.get("data_loader_workers", [0]):
+            command.extend(["--data-loader-workers", str(value)])
+        for value in o.get("parallel_expansions_per_root", [1, 4]):
+            command.extend(["--parallel-expansions-per-root", str(value)])
+        if "root_simulations" in o:
+            command.extend(["--root-simulations", str(o["root_simulations"])])
+        if "bootstrap_games" in o:
+            command.extend(["--bootstrap-games", str(o["bootstrap_games"])])
+        if "epochs" in o:
+            command.extend(["--epochs", str(o["epochs"])])
+        if "max_game_plies" in o:
+            command.extend(["--max-game-plies", str(o["max_game_plies"])])
+        if bool(o.get("keep_artifacts", False)):
+            command.append("--keep-artifacts")
+        return command
+
     if kind == "tournament":
         command = [
             python_exe,

@@ -29,6 +29,8 @@ def evaluate_state(state: GameState, config: AppConfig, player: Player | None = 
     if state.winner == opponent:
         terminal = -config.heuristic.terminal_score
         return HeuristicEvaluation(player, terminal, (), (), 0, 0.0)
+    if state.draw_reason is not None:
+        return HeuristicEvaluation(player, 0.0, (), (), 0, 0.0)
 
     position = SparsePosition.from_game_state(state)
     friendly_counts = _window_alignment_counts(position, config, player)

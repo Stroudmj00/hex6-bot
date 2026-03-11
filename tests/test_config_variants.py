@@ -37,8 +37,8 @@ def test_load_search_matrix_uses_matrix_relative_base_path() -> None:
     spec = load_search_matrix(matrix_path)
 
     assert resolved_base_config_path(matrix_path, "../play.toml").name == "play.toml"
-    assert spec.base_config.search.algorithm == "baseline_play"
-    assert spec.base_config.evaluation.max_game_plies == 80
+    assert spec.base_config.search.algorithm == "guided_mcts"
+    assert spec.base_config.evaluation.max_game_plies == 0
     assert spec.games == 6
     assert len(spec.variants) == 6
     assert len(spec.opening_suite) == 6

@@ -58,8 +58,10 @@ def test_train_bootstrap_parallel_self_play_runs(tmp_path: Path) -> None:
         config,
         training=replace(
             config.training,
+            bootstrap_strategy="search_supervision_then_self_play",
             bootstrap_games=2,
             max_game_plies=6,
+            policy_target="all_placements",
             self_play_workers=2,
             data_loader_workers=0,
         ),

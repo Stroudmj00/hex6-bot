@@ -3,7 +3,7 @@
 ## Design principles
 
 - Config-first: assumptions live in `TOML`, not scattered constants.
-- Sparse-first: the board is logically infinite and stored sparsely.
+- Sparse-first: the board is stored sparsely even though the default game is a bounded `15 x 15` board.
 - Modular package boundaries: game logic, search, training, and evaluation should remain
   separable.
 - Importable prototypes: exploratory code should still live in modules, not throwaway
@@ -64,4 +64,3 @@
 5. Engine tests.
 6. Search baseline.
 7. Neural components.
-

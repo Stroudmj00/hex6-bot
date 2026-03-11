@@ -21,6 +21,8 @@ def build_variant(
     interop_threads: int,
     self_play_workers: int,
     data_loader_workers: int,
+    parallel_expansions_per_root: int | None,
+    root_simulations: int | None,
     bootstrap_games: int | None,
     epochs: int | None,
     max_game_plies: int | None,
@@ -38,8 +40,17 @@ def build_variant(
         epochs=epochs if epochs is not None else config.training.epochs,
         max_game_plies=max_game_plies if max_game_plies is not None else config.training.max_game_plies,
     )
+    search = replace(
+        config.search,
+        parallel_expansions_per_root=(
+            parallel_expansions_per_root
+            if parallel_expansions_per_root is not None
+            else config.search.parallel_expansions_per_root
+        ),
+        root_simulations=root_simulations if root_simulations is not None else config.search.root_simulations,
+    )
     evaluation = replace(config.evaluation, arena_games=0)
-    return replace(config, runtime=runtime, training=training, evaluation=evaluation)
+    return replace(config, runtime=runtime, search=search, training=training, evaluation=evaluation)
 
 
 def summarize_variant(config: AppConfig) -> dict[str, Any]:
@@ -48,6 +59,8 @@ def summarize_variant(config: AppConfig) -> dict[str, Any]:
         "interop_threads": config.runtime.interop_threads,
         "self_play_workers": config.training.self_play_workers,
         "data_loader_workers": config.training.data_loader_workers,
+        "parallel_expansions_per_root": config.search.parallel_expansions_per_root,
+        "root_simulations": config.search.root_simulations,
         "bootstrap_games": config.training.bootstrap_games,
         "epochs": config.training.epochs,
         "max_game_plies": config.training.max_game_plies,
@@ -63,6 +76,8 @@ def benchmark_runtime(
     interop_threads: list[int],
     self_play_workers: list[int],
     data_loader_workers: list[int],
+    parallel_expansions_per_root: list[int],
+    root_simulations: int | None,
     bootstrap_games: int | None,
     epochs: int | None,
     max_game_plies: int | None,
@@ -74,8 +89,20 @@ def benchmark_runtime(
     output_dir.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, Any]] = []
 
-    for index, (cpu_thread_count, interop_thread_count, self_play_worker_count, data_loader_worker_count) in enumerate(
-        product(cpu_threads, interop_threads, self_play_workers, data_loader_workers),
+    for index, (
+        cpu_thread_count,
+        interop_thread_count,
+        self_play_worker_count,
+        data_loader_worker_count,
+        parallel_expansion_count,
+    ) in enumerate(
+        product(
+            cpu_threads,
+            interop_threads,
+            self_play_workers,
+            data_loader_workers,
+            parallel_expansions_per_root,
+        ),
         start=1,
     ):
         variant = build_variant(
@@ -84,6 +111,8 @@ def benchmark_runtime(
             interop_threads=interop_thread_count,
             self_play_workers=self_play_worker_count,
             data_loader_workers=data_loader_worker_count,
+            parallel_expansions_per_root=parallel_expansion_count,
+            root_simulations=root_simulations,
             bootstrap_games=bootstrap_games,
             epochs=epochs,
             max_game_plies=max_game_plies,
@@ -91,6 +120,7 @@ def benchmark_runtime(
         run_dir = output_dir / (
             f"run_{index:02d}_cpu{cpu_thread_count}_interop{interop_thread_count}"
             f"_sp{self_play_worker_count}_dl{data_loader_worker_count}"
+            f"_px{parallel_expansion_count}"
         )
         metrics = train_bootstrap(
             config=variant,
@@ -164,6 +194,19 @@ def main() -> None:
         default=[0, 2],
         help="DataLoader worker counts to benchmark.",
     )
+    parser.add_argument(
+        "--parallel-expansions-per-root",
+        nargs="+",
+        type=int,
+        default=[1],
+        help="guided_mcts parallel expansion counts to benchmark.",
+    )
+    parser.add_argument(
+        "--root-simulations",
+        type=int,
+        default=None,
+        help="Optional fixed root simulation count for every variant.",
+    )
     parser.add_argument("--bootstrap-games", type=int, default=2, help="Override bootstrap game count.")
     parser.add_argument("--epochs", type=int, default=1, help="Override epoch count.")
     parser.add_argument("--max-game-plies", type=int, default=8, help="Override max game plies.")
@@ -182,6 +225,8 @@ def main() -> None:
         interop_threads=args.interop_threads,
         self_play_workers=args.self_play_workers,
         data_loader_workers=args.data_loader_workers,
+        parallel_expansions_per_root=args.parallel_expansions_per_root,
+        root_simulations=args.root_simulations,
         bootstrap_games=args.bootstrap_games,
         epochs=args.epochs,
         max_game_plies=args.max_game_plies,

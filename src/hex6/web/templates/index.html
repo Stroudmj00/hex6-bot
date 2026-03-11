@@ -3,73 +3,250 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Hex6 Arena</title>
+    <title>Hex6</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   </head>
   <body>
-    <div class="backdrop"></div>
-    <main class="layout">
-      <section class="panel hero">
-        <p class="eyebrow">Local Arena</p>
-        <h1>Hex6 Bot Playground</h1>
-        <p class="lede">
-          Infinite-board rules, cropped local view, current bot running on <code>{{ config_path }}</code>.
-        </p>
-        <div class="controls">
-          <button id="new-x" class="primary">New Game as X</button>
-          <button id="new-o" class="secondary">New Game as O</button>
-          <button id="clear-selection" class="ghost">Clear Selection</button>
-        </div>
-        <div class="status-grid">
-          <div>
-            <span class="label">Turn</span>
-            <strong id="turn-label">Not started</strong>
-          </div>
-          <div>
-            <span class="label">Placements</span>
-            <strong id="placements-label">0</strong>
-          </div>
-          <div>
-            <span class="label">Winner</span>
-            <strong id="winner-label">None</strong>
-          </div>
-          <div>
-            <span class="label">Bot Move</span>
-            <strong id="bot-move-label">None</strong>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Hex6</p>
+          <h1>Play the game, not the page chrome.</h1>
+          <p class="lede">
+            Hex6 is a sparse-board connection game with a sharp turn rhythm. {{ board_caption }} This site keeps
+            friendly games on the visitor device when possible and keeps the engine lane available when you want
+            to show the bot.
+          </p>
+          <div class="hero-metrics">
+            <article class="metric-card">
+              <span class="label">Board</span>
+              <strong>{{ board_title }}</strong>
+              <p>{{ board_lede }}</p>
+            </article>
+            <article class="metric-card">
+              <span class="label">Turn Structure</span>
+              <strong>
+                {{ bootstrap_payload.game.openingPlacements }} opening / {{ bootstrap_payload.game.turnPlacements }} after
+              </strong>
+              <p>{{ board_caption }}</p>
+            </article>
           </div>
         </div>
+
+        <div class="hero-rail">
+          <section class="mode-card" data-mode-card="local_ai">
+            <p class="eyebrow">Browser-Owned</p>
+            <h2>Play vs AI</h2>
+            <p>
+              The default AI mode runs locally in JavaScript, so the player device services the match instead of
+              requiring a server turn-by-turn.
+            </p>
+            <div class="button-row">
+              <button id="start-local-ai-x" class="primary" type="button">Play First</button>
+              <button id="start-local-ai-o" class="secondary" type="button">Play Second</button>
+            </div>
+          </section>
+
+          <section class="mode-card" data-mode-card="local_friend">
+            <p class="eyebrow">Same Device</p>
+            <h2>Play vs Friend</h2>
+            <p>
+              Run the full game locally and hand the board back and forth. No engine calls, no latency, no extra
+              hosting requirement.
+            </p>
+            <div class="button-row">
+              <button id="start-friend" class="primary" type="button">Start Friend Match</button>
+            </div>
+          </section>
+
+          <section class="mode-card" data-mode-card="spectator">
+            <p class="eyebrow">Engine-Backed</p>
+            <h2>Watch Engine Match</h2>
+            <p>
+              Keep the hosted bot visible as a showcase lane without making it the default path for every visitor
+              game.
+            </p>
+            <div class="button-row">
+              <button id="start-spectator" class="ghost strong" type="button">Watch Engine Match</button>
+            </div>
+          </section>
+        </div>
+      </header>
+
+      <section class="signal-bar">
+        <article class="signal-card">
+          <span class="label">Hosted Engine</span>
+          <strong>{{ bot_label }}</strong>
+          <p>{{ config_name }} &middot; spectator lane available.</p>
+        </article>
+        <article class="signal-card">
+          <span class="label">Game Goal</span>
+          <strong>Connect {{ bootstrap_payload.game.winLength }}</strong>
+          <p>Make a contiguous line before the board runs out of room for the current turn.</p>
+        </article>
+        <article class="signal-card">
+          <span class="label">Website Goal</span>
+          <strong>Clean, teachable play surface</strong>
+          <p>Modes are obvious, controls stay quiet, and the rules section animates the key ideas.</p>
+        </article>
       </section>
 
-      <section class="panel board-panel">
-        <div class="board-header">
-          <div>
-            <p class="eyebrow">Board</p>
-            <h2>Infinite Grid</h2>
-          </div>
-          <div class="board-actions">
+      <main class="workspace">
+        <section class="board-card">
+          <div class="board-topline">
+            <div>
+              <p class="eyebrow">Current Match</p>
+              <h2 id="board-title">{{ board_title }}</h2>
+              <p id="board-subtitle" class="hint">
+                Start a local AI match, a friend match, or an engine spectator session.
+              </p>
+            </div>
             <div class="zoom-controls">
               <button id="zoom-out" class="ghost" type="button" aria-label="Zoom out">-</button>
               <strong id="zoom-label">100%</strong>
               <button id="zoom-in" class="ghost" type="button" aria-label="Zoom in">+</button>
               <button id="reset-view" class="ghost" type="button">Reset View</button>
             </div>
-            <button id="submit-move" class="primary">Submit Move</button>
           </div>
+
+          <svg id="board" viewBox="0 0 1000 760" role="img" aria-label="Hex board"></svg>
+
+          <div class="board-footer">
+            <div class="legend-row">
+              <span class="legend-chip selected">Selected</span>
+              <span class="legend-chip recent">Recent reply</span>
+              <span class="legend-chip winning">Winning line</span>
+            </div>
+            <p id="board-helper" class="hint">
+              Tap empty cells to queue a turn. Drag to pan. Use the wheel or zoom controls to adjust the board.
+            </p>
+          </div>
+        </section>
+
+        <aside class="sidebar">
+          <section class="side-card">
+            <p class="eyebrow">Status</p>
+            <div class="status-list">
+              <div class="status-item">
+                <span class="label">Turn</span>
+                <strong id="turn-label">Not started</strong>
+              </div>
+              <div class="status-item">
+                <span class="label">Placements</span>
+                <strong id="placements-label">0</strong>
+              </div>
+              <div class="status-item">
+                <span class="label">Plies</span>
+                <strong id="plies-label">0</strong>
+              </div>
+              <div class="status-item">
+                <span class="label">Result</span>
+                <strong id="winner-label">None</strong>
+              </div>
+              <div class="status-item full">
+                <span class="label">Mode</span>
+                <strong id="mode-label">Idle</strong>
+              </div>
+              <div class="status-item full">
+                <span class="label">Matchup</span>
+                <strong id="matchup-label">None</strong>
+              </div>
+              <div class="status-item full">
+                <span class="label">Last Response</span>
+                <strong id="response-label">None</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="side-card">
+            <p class="eyebrow">Turn Builder</p>
+            <h2>Selected Cells</h2>
+            <div id="selected-cells" class="pill-row"></div>
+            <p id="turn-helper" class="hint">
+              Choose one or two cells, depending on the turn. A winning first stone can end the turn early.
+            </p>
+            <div class="control-stack">
+              <div class="button-row">
+                <button id="submit-move" class="primary" type="button">Submit Turn</button>
+                <button id="clear-selection" class="secondary" type="button">Clear</button>
+              </div>
+              <div class="button-row">
+                <button id="toggle-autoplay" class="ghost" type="button">Autoplay Off</button>
+                <button id="step-bot" class="ghost" type="button">Next Engine Turn</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="side-card subtle-card">
+            <p class="eyebrow">Why This Setup</p>
+            <p class="hint">
+              Friend matches and browser AI matches stay on the player device. The hosted bot remains available for
+              showcase sessions instead of carrying the default traffic pattern.
+            </p>
+          </section>
+        </aside>
+      </main>
+
+      <section class="rules-section">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Learn The Game</p>
+            <h2>Animated rule cards instead of static text</h2>
+          </div>
+          <p class="hint">
+            Each panel loops through one rule so players can understand the turn rhythm before they start.
+          </p>
         </div>
-        <svg id="board" viewBox="0 0 1000 760" role="img" aria-label="Hex board"></svg>
+
+        <div class="rules-grid">
+          <article class="rule-card">
+            <div class="rule-board-frame">
+              <svg class="rule-board" data-demo="opening" viewBox="0 0 340 220" role="img" aria-label="Opening rule demo"></svg>
+            </div>
+            <h3>Opening turn</h3>
+            <p>
+              X starts with {{ bootstrap_payload.game.openingPlacements }} placement{% if bootstrap_payload.game.openingPlacements != 1 %}s{% endif %}.
+              The board is centered and ready from move one.
+            </p>
+          </article>
+
+          <article class="rule-card">
+            <div class="rule-board-frame">
+              <svg class="rule-board" data-demo="double-turn" viewBox="0 0 340 220" role="img" aria-label="Two placement turn demo"></svg>
+            </div>
+            <h3>Later turns</h3>
+            <p>
+              After the opener, each player gets {{ bootstrap_payload.game.turnPlacements }} placement{% if bootstrap_payload.game.turnPlacements != 1 %}s{% endif %} per turn.
+              The board stays readable while the tempo jumps.
+            </p>
+          </article>
+
+          <article class="rule-card">
+            <div class="rule-board-frame">
+              <svg class="rule-board" data-demo="mid-turn-win" viewBox="0 0 340 220" role="img" aria-label="Immediate win demo"></svg>
+            </div>
+            <h3>Wins end the turn immediately</h3>
+            <p>If a placement completes the line, the game stops right there. The second stone never lands.</p>
+          </article>
+
+          <article class="rule-card">
+            <div class="rule-board-frame">
+              <svg class="rule-board" data-demo="board-exhausted" viewBox="0 0 340 220" role="img" aria-label="Board exhaustion demo"></svg>
+            </div>
+            <h3>Bounded boards can draw</h3>
+            <p>If the board does not have enough empty cells to finish the current turn, the result is a board-exhausted draw.</p>
+          </article>
+        </div>
       </section>
 
-      <section class="panel utility">
-        <p class="eyebrow">Move Builder</p>
-        <h2>Selected Cells</h2>
-        <div id="selected-cells" class="pill-row"></div>
-        <p class="hint">
-          Click empty hexes to place stones. Drag to pan and use the mouse wheel or zoom buttons
-          to zoom the infinite grid.
-        </p>
-      </section>
-    </main>
+      <div id="flash-message" class="flash-message" aria-live="polite"></div>
+    </div>
 
+    <script>
+      window.HEX6_BOOTSTRAP = {{ bootstrap_payload | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='local_game.js') }}"></script>
+    <script src="{{ url_for('static', filename='rule_demos.js') }}"></script>
     <script src="{{ url_for('static', filename='app.js') }}"></script>
   </body>
 </html>

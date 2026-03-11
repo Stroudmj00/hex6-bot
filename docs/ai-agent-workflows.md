@@ -2,7 +2,7 @@
 
 This playbook is for Codex/AI agents making code changes in this repo.
 
-Read `AGENTS.md` first, then use the task recipe below.
+Read `AGENTS.md` first, then `docs/index.md`, then use the task recipe below.
 
 ## Workflow 1: Game Rules Change
 
@@ -51,6 +51,8 @@ Use for HTTP endpoints, session payload shape, or browser behavior.
 2. Frontend edits:
    - `src/hex6/web/templates/index.html`
    - `src/hex6/web/static/app.js`
+   - `src/hex6/web/static/local_game.js`
+   - `src/hex6/web/static/rule_demos.js`
    - `src/hex6/web/static/styles.css`
 3. Keep response structure stable unless intentionally changing API contract.
 4. Update/add `tests/test_web_app.py`.
@@ -68,10 +70,13 @@ Use for bootstrap generation, loop scheduling, or checkpoint evaluation behavior
    - `src/hex6/train/run_cycle.py`
    - `src/hex6/eval/*.py` as needed
 2. Keep long-running commands optional and config-driven.
-3. Update/add tests:
+3. Default policy:
+   - local only for smoke/debug jobs expected to finish in 20 minutes or less
+   - Colab for longer training/eval runs
+4. Update/add tests:
    - `tests/test_arena.py`
    - `tests/test_opening_suite.py`
-4. Run:
+5. Run:
    - `.venv\Scripts\python -m pytest tests/test_arena.py tests/test_opening_suite.py`
    - Optional smoke: `.venv\Scripts\python -m hex6.train.run_bootstrap --config configs/fast.toml --output artifacts/bootstrap_fast`
 

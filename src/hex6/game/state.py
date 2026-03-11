@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, Literal, Sequence
 
 from hex6.config.schema import GameConfig
@@ -27,8 +28,7 @@ class MoveRecord:
 class GameState:
     """Sparse immutable game state.
 
-    The board is legally infinite. Search and model code can impose their own candidate
-    restrictions, but the rules layer accepts any empty coordinate.
+    The rules layer is sparse by default and can optionally honor explicit configured bounds.
     """
 
     stones: dict[Coord, Player]
@@ -37,28 +37,36 @@ class GameState:
     turn_index: int
     ply_count: int
     winner: Player | None = None
+    draw_reason: str | None = None
     winning_line: tuple[Coord, ...] | None = None
+    last_move: Coord | None = None
     move_history: tuple[MoveRecord, ...] = ()
 
     @classmethod
     def initial(cls, game_config: GameConfig) -> "GameState":
-        return cls(
+        initial_state = cls(
             stones={},
             to_play=game_config.players[0],
             placements_remaining=game_config.opening_placements,
             turn_index=1,
             ply_count=0,
+            last_move=None,
         )
+        return initial_state._with_exhaustion_draw_if_needed(game_config)
 
-    @property
+    @cached_property
     def occupied(self) -> tuple[Coord, ...]:
         return tuple(self.stones.keys())
 
     @property
     def is_terminal(self) -> bool:
-        return self.winner is not None
+        return self.winner is not None or self.draw_reason is not None
 
     def signature(self) -> tuple[Any, ...]:
+        return self._signature
+
+    @cached_property
+    def _signature(self) -> tuple[Any, ...]:
         return (
             tuple(sorted(self.stones.items())),
             self.to_play,
@@ -66,6 +74,7 @@ class GameState:
             self.turn_index,
             self.ply_count,
             self.winner,
+            self.draw_reason,
         )
 
     def opponent(self, player: Player | None = None) -> Player:
@@ -75,15 +84,23 @@ class GameState:
     def is_empty(self, cell: Coord) -> bool:
         return cell not in self.stones
 
-    def is_legal_placement(self, cell: Coord) -> bool:
-        return not self.is_terminal and self.is_empty(cell)
+    def is_legal_placement(self, cell: Coord, game_config: GameConfig | None = None) -> bool:
+        return (
+            not self.is_terminal
+            and self.is_empty(cell)
+            and (game_config is None or game_config.is_in_bounds(cell))
+        )
+
+    @cached_property
+    def _occupied_bounds(self) -> tuple[int, int, int, int]:
+        if not self.occupied:
+            return 0, 0, 0, 0
+        qs = [coord[0] for coord in self.occupied]
+        rs = [coord[1] for coord in self.occupied]
+        return min(qs), max(qs), min(rs), max(rs)
 
     def occupied_bounds(self) -> tuple[int, int, int, int]:
-        if not self.stones:
-            return 0, 0, 0, 0
-        qs = [coord[0] for coord in self.stones]
-        rs = [coord[1] for coord in self.stones]
-        return min(qs), max(qs), min(rs), max(rs)
+        return self._occupied_bounds
 
     def suggested_center(self) -> Coord:
         min_q, max_q, min_r, max_r = self.occupied_bounds()
@@ -100,6 +117,8 @@ class GameState:
             "turn_index": self.turn_index,
             "ply_count": self.ply_count,
             "winner": self.winner,
+            "draw_reason": self.draw_reason,
+            "is_terminal": self.is_terminal,
             "winning_line": (
                 [{"q": q, "r": r} for q, r in self.winning_line]
                 if self.winning_line is not None
@@ -107,22 +126,56 @@ class GameState:
             ),
         }
 
-    def apply_turn(self, cells: Sequence[Coord], game_config: GameConfig) -> "GameState":
-        if len(cells) != self.placements_remaining:
+    def remaining_empty_cells(self, game_config: GameConfig) -> int | None:
+        bounds = game_config.bounds()
+        if bounds is None:
+            return None
+        min_q, max_q, min_r, max_r = bounds
+        total_cells = (max_q - min_q + 1) * (max_r - min_r + 1)
+        return max(0, total_cells - len(self.stones))
+
+    def can_complete_turn(self, game_config: GameConfig) -> bool:
+        remaining = self.remaining_empty_cells(game_config)
+        if remaining is None:
+            return True
+        return remaining >= self.placements_remaining
+
+    def apply_turn(
+        self,
+        cells: Sequence[Coord],
+        game_config: GameConfig,
+        *,
+        record_history: bool = True,
+    ) -> "GameState":
+        if len(cells) == 0 or len(cells) > self.placements_remaining:
             raise IllegalMoveError(
                 f"expected {self.placements_remaining} placements, received {len(cells)}"
             )
 
         state = self
         for index, cell in enumerate(cells):
-            state = state.apply_placement(cell, game_config)
+            state = state.apply_placement(cell, game_config, record_history=record_history)
             if state.is_terminal and index != len(cells) - 1:
-                raise IllegalMoveError("turn continued after a winning placement")
+                raise IllegalMoveError("turn continued after the game ended")
+            if state.is_terminal:
+                return state
+        if len(cells) != self.placements_remaining:
+            raise IllegalMoveError(
+                f"expected {self.placements_remaining} placements, received {len(cells)}"
+            )
         return state
 
-    def apply_placement(self, cell: Coord, game_config: GameConfig) -> "GameState":
+    def apply_placement(
+        self,
+        cell: Coord,
+        game_config: GameConfig,
+        *,
+        record_history: bool = True,
+    ) -> "GameState":
         if self.is_terminal:
             raise IllegalMoveError("cannot place a stone after the game is over")
+        if not game_config.is_in_bounds(cell):
+            raise IllegalMoveError(f"cell {cell} is outside the configured board bounds")
         if not self.is_empty(cell):
             raise IllegalMoveError(f"cell {cell} is already occupied")
 
@@ -132,12 +185,15 @@ class GameState:
         ply_count = self.ply_count + 1
         winning_line = self.find_winning_line(stones, cell, player, game_config.win_length)
         remaining_after_move = self.placements_remaining - 1
-        move_record = MoveRecord(
-            player=player,
-            cell=cell,
-            turn_index=self.turn_index,
-            placements_remaining_after=max(0, remaining_after_move),
-        )
+        move_history = self.move_history
+        if record_history:
+            move_record = MoveRecord(
+                player=player,
+                cell=cell,
+                turn_index=self.turn_index,
+                placements_remaining_after=max(0, remaining_after_move),
+            )
+            move_history = self.move_history + (move_record,)
 
         if winning_line is not None:
             return GameState(
@@ -147,8 +203,10 @@ class GameState:
                 turn_index=self.turn_index,
                 ply_count=ply_count,
                 winner=player,
+                draw_reason=None,
                 winning_line=winning_line,
-                move_history=self.move_history + (move_record,),
+                last_move=cell,
+                move_history=move_history,
             )
 
         if remaining_after_move > 0:
@@ -158,8 +216,9 @@ class GameState:
                 placements_remaining=remaining_after_move,
                 turn_index=self.turn_index,
                 ply_count=ply_count,
-                move_history=self.move_history + (move_record,),
-            )
+                last_move=cell,
+                move_history=move_history,
+            )._with_exhaustion_draw_if_needed(game_config)
 
         next_player = self.opponent(player)
         return GameState(
@@ -168,7 +227,24 @@ class GameState:
             placements_remaining=game_config.turn_placements,
             turn_index=self.turn_index + 1,
             ply_count=ply_count,
-            move_history=self.move_history + (move_record,),
+            last_move=cell,
+            move_history=move_history,
+        )._with_exhaustion_draw_if_needed(game_config)
+
+    def _with_exhaustion_draw_if_needed(self, game_config: GameConfig) -> "GameState":
+        if self.is_terminal or self.can_complete_turn(game_config):
+            return self
+        return GameState(
+            stones=self.stones,
+            to_play=self.to_play,
+            placements_remaining=0,
+            turn_index=self.turn_index,
+            ply_count=self.ply_count,
+            winner=None,
+            draw_reason="board_exhausted",
+            winning_line=None,
+            last_move=self.last_move,
+            move_history=self.move_history,
         )
 
     @staticmethod

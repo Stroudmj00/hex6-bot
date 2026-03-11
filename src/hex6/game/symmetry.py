@@ -28,11 +28,13 @@ def rotate_state(state: GameState, steps: int) -> GameState:
         turn_index=state.turn_index,
         ply_count=state.ply_count,
         winner=state.winner,
+        draw_reason=state.draw_reason,
         winning_line=(
             tuple(rotate_coord(cell, steps) for cell in state.winning_line)
             if state.winning_line is not None
             else None
         ),
+        last_move=(rotate_coord(state.last_move, steps) if state.last_move is not None else None),
         move_history=tuple(
             MoveRecord(
                 player=record.player,
@@ -43,4 +45,3 @@ def rotate_state(state: GameState, steps: int) -> GameState:
             for record in state.move_history
         ),
     )
-

@@ -28,35 +28,42 @@ def encode_state(
     radius = config.model.board_crop_radius
     side = radius * 2 + 1
     center = crop_center(state)
-
     tensor = torch.zeros((6, side, side), dtype=torch.float32)
-    index_to_cell: list[Coord] = []
+    tensor[3].fill_(1.0)
+    tensor[4].fill_(1.0 if perspective == "x" else 0.0)
+    tensor[5].fill_(state.placements_remaining / max(1, config.game.turn_placements))
 
-    last_move = state.move_history[-1].cell if state.move_history else None
-    placement_fill = state.placements_remaining / max(1, config.game.turn_placements)
+    last_move = state.last_move if state.last_move is not None else (state.move_history[-1].cell if state.move_history else None)
+    min_q = center[0] - radius
+    min_r = center[1] - radius
 
-    for row, r in enumerate(range(center[1] - radius, center[1] + radius + 1)):
-        for col, q in enumerate(range(center[0] - radius, center[0] + radius + 1)):
-            cell = (q, r)
-            index_to_cell.append(cell)
-            occupant = state.stones.get(cell)
-            if occupant == perspective:
-                tensor[0, row, col] = 1.0
-            elif occupant == opponent:
-                tensor[1, row, col] = 1.0
+    for (q, r), occupant in state.stones.items():
+        col = q - min_q
+        row = r - min_r
+        if row < 0 or row >= side or col < 0 or col >= side:
+            continue
+        if occupant == perspective:
+            tensor[0, row, col] = 1.0
+        elif occupant == opponent:
+            tensor[1, row, col] = 1.0
 
-            if last_move == cell:
-                tensor[2, row, col] = 1.0
+    if last_move is not None:
+        col = last_move[0] - min_q
+        row = last_move[1] - min_r
+        if 0 <= row < side and 0 <= col < side:
+            tensor[2, row, col] = 1.0
 
-            tensor[3, row, col] = 1.0
-            tensor[4, row, col] = 1.0 if perspective == "x" else 0.0
-            tensor[5, row, col] = placement_fill
+    index_to_cell = tuple(
+        (q, r)
+        for r in range(min_r, min_r + side)
+        for q in range(min_q, min_q + side)
+    )
 
     return EncodedPosition(
         tensor=tensor,
         center=center,
         radius=radius,
-        index_to_cell=tuple(index_to_cell),
+        index_to_cell=index_to_cell,
     )
 
 
@@ -72,8 +79,15 @@ def crop_center(state: GameState) -> Coord:
 
 
 def cell_to_policy_index(encoded: EncodedPosition, cell: Coord) -> int | None:
-    try:
-        return encoded.index_to_cell.index(cell)
-    except ValueError:
-        return None
+    return policy_index_for_cell(encoded.center, encoded.radius, cell)
 
+
+def policy_index_for_cell(center: Coord, radius: int, cell: Coord) -> int | None:
+    side = radius * 2 + 1
+    min_q = center[0] - radius
+    min_r = center[1] - radius
+    col = cell[0] - min_q
+    row = cell[1] - min_r
+    if row < 0 or row >= side or col < 0 or col >= side:
+        return None
+    return (row * side) + col
