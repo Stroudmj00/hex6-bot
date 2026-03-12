@@ -9,9 +9,9 @@ and engine-backed demos.
 Python `3.11` is the intended local version.
 
 If you want CUDA, install the appropriate PyTorch wheel first from the official PyTorch selector. A plain
-`pip install -e .[dev]` will otherwise install the default wheel for your platform. This repo now treats
-the local machine as a development box only: use it for tests, website work, and CPU-only debugging, and
-run all real training/evaluation/efficiency experiments on Colab.
+`pip install -e .[dev]` will otherwise install the default wheel for your platform. The current workflow is
+local-first again: use the local machine for development, training, evaluation, and profiling. Colab tooling
+remains in the repo as an optional remote path, not the default.
 
 ```powershell
 .venv\Scripts\Activate.ps1
@@ -47,20 +47,15 @@ Package map:
 
 ## Config Profiles
 
-Stable runtime profiles:
+Current supported profiles:
 
 - `configs/default.toml`: shared default research lane.
 - `configs/fast.toml`: fastest local training profile.
-- `configs/colab.toml`: medium Colab profile.
-- `configs/colab_hour.toml`: repeated cycle profile.
-- `configs/colab_strongest_v2.toml`: strongest current Colab training lane.
 - `configs/play.toml`: website/play profile.
+- `configs/local_4h_strongest_v2.toml`: strongest stable local cycle lane.
+- `configs/local_4h_strongest_v2_gumbel.toml`: strongest experimental local cycle lane.
 
-Experiment and evaluation configs:
-
-- `configs/experiments/search_matrix.toml`: search tuning sweeps.
-- `configs/experiments/*opening_suite*.toml`: fixed opening suites for training/eval/promotion.
-- `configs/fast_19.toml`, `configs/fast_25.toml`, `configs/local_16h_best.toml`: narrower comparison or long-run configs.
+Historical or comparison profiles are still present for reproducibility, but they are no longer the main surface to optimize against. See `configs/README.md` for the current vs historical split.
 
 ## Common Commands
 
@@ -79,13 +74,13 @@ Fast bootstrap smoke:
 Repeated cycle:
 
 ```powershell
-.venv\Scripts\python -m hex6.train.run_cycle --config configs/colab_strongest_v2.toml --output-root artifacts/bootstrap_colab_strongest_v2 --minutes 60
+.venv\Scripts\python -m hex6.train.run_cycle --config configs/local_4h_strongest_v2.toml --output-root artifacts/alphazero_cycle_local_strongest_v2 --minutes 60 --status-backend none
 ```
 
-Preferred Colab cycle launch:
+Experimental strongest lane:
 
-```bash
-python scripts/colab_run.py cycle --repo-root /content/drive/MyDrive/Hex-A-Toe --minimum-gpu-tier V100 --config configs/colab_strongest_v2.toml --output-root artifacts/bootstrap_colab_strongest_v2 --minutes 60
+```powershell
+.venv\Scripts\python -m hex6.train.run_cycle --config configs/local_4h_strongest_v2_gumbel.toml --output-root artifacts/alphazero_cycle_local_strongest_v2_gumbel --minutes 60 --status-backend none
 ```
 
 Arena eval:
@@ -111,24 +106,26 @@ Search matrix:
 Start here:
 
 - `docs/index.md`: repo navigation guide and document map.
+- `docs/current-state.md`: supported profiles, workflow, and current priorities.
 - `docs/architecture.md`: high-level package structure.
 - `docs/tools.md`: canonical commands.
 - `docs/ai-agent-workflows.md`: task-specific edit/test workflows.
 
 Operational docs:
 
-- `docs/colab.md`: Colab usage and remote workflow.
 - `docs/vercel.md`: deploy notes.
-- `docs/codex-orchestration.md`: orchestration notes for AI-assisted work.
+- `docs/open-source-checklist.md`
 
-Research and status docs:
+Current research docs:
 
-- `docs/executive-review.md`
-- `docs/model-journey.md`
 - `docs/literature-improvements.md`
 - `docs/literature-roadmap.md`
-- `docs/next-experiment-options.md`
-- `docs/open-source-checklist.md`
+- `docs/performance-roadmap.md`
+- `docs/game-exploration.md`
+
+Historical reports and old workflow notes:
+
+- `docs/archive.md`
 
 ## Change Safety
 

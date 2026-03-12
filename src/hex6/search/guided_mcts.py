@@ -37,6 +37,7 @@ class RootAnalysis:
 class _Edge:
     cells: tuple[Coord, ...]
     prior: float
+    root_gumbel: float = 0.0
     visit_count: int = 0
     value_sum: float = 0.0
     child: _Node | None = None
@@ -194,6 +195,7 @@ class GuidedMctsTurnSearch:
                                 trace.leaf,
                                 config,
                                 root_player=trace.root_player,
+                                is_root=trace.leaf is trace.root,
                                 add_root_noise=trace.add_root_noise and trace.leaf is trace.root,
                             )
                         else:
@@ -313,7 +315,7 @@ class GuidedMctsTurnSearch:
                     add_root_noise=add_root_noise,
                 )
 
-            edge = self._select_edge(node, config, root_player=root_player)
+            edge = self._select_edge(node, config, root_player=root_player, is_root=node is root)
             if edge is None:
                 return _PendingSearch(
                     root=root,
@@ -392,7 +394,7 @@ class GuidedMctsTurnSearch:
             )
 
         weights = self._root_weights(root.edges, sample=sample, temperature=temperature)
-        selected_edge = self._sample_edge(root.edges, weights) if sample else self._best_edge(root.edges)
+        selected_edge = self._sample_edge(root.edges, weights) if sample else self._best_root_edge(root.edges, config)
         chosen_turn = ScoredTurn(
             cells=selected_edge.cells,
             score=round(selected_edge.mean_value, 4),
@@ -422,6 +424,7 @@ class GuidedMctsTurnSearch:
         config: AppConfig,
         *,
         root_player: Player,
+        is_root: bool,
         add_root_noise: bool,
     ) -> float:
         if node.state.is_terminal:
@@ -438,12 +441,35 @@ class GuidedMctsTurnSearch:
         priors = self._turn_priors(node.state, candidate_turns, config)
         if add_root_noise and priors:
             priors = self._mix_root_noise(priors, config)
-        node.edges = [_Edge(cells=turn.cells, prior=prior) for turn, prior in zip(candidate_turns, priors, strict=True)]
+        node.edges = [
+            _Edge(
+                cells=turn.cells,
+                prior=prior,
+                root_gumbel=self._sample_gumbel() if is_root and self._use_gumbel_root(config) else 0.0,
+            )
+            for turn, prior in zip(candidate_turns, priors, strict=True)
+        ]
+        if is_root and self._use_gumbel_root(config):
+            node.edges.sort(
+                key=lambda edge: (
+                    self._root_priority_score(edge, config),
+                    edge.prior,
+                    edge.cells,
+                ),
+                reverse=True,
+            )
         node.expanded = True
         return self._evaluate_value(node.state, config, root_player)
 
-    def _select_edge(self, node: _Node, config: AppConfig, *, root_player: Player) -> _Edge | None:
-        edges = self._candidate_edges_for_selection(node, config)
+    def _select_edge(
+        self,
+        node: _Node,
+        config: AppConfig,
+        *,
+        root_player: Player,
+        is_root: bool = False,
+    ) -> _Edge | None:
+        edges = self._candidate_edges_for_selection(node, config, is_root=is_root)
         if not edges:
             return None
 
@@ -456,6 +482,8 @@ class GuidedMctsTurnSearch:
             q_value = edge.mean_value if maximize else -edge.mean_value
             u_value = exploration * edge.prior * math.sqrt(total_visits) / (1 + edge.visit_count)
             score = q_value + u_value
+            if is_root and self._use_gumbel_root(config):
+                score += self._root_selection_bonus(edge, config)
             if (
                 best is None
                 or score > best_score
@@ -465,13 +493,30 @@ class GuidedMctsTurnSearch:
                 best_score = score
         return best
 
-    def _candidate_edges_for_selection(self, node: _Node, config: AppConfig) -> list[_Edge]:
+    def _candidate_edges_for_selection(
+        self,
+        node: _Node,
+        config: AppConfig,
+        *,
+        is_root: bool,
+    ) -> list[_Edge]:
         if not node.edges:
             return []
         if not config.search.use_progressive_widening:
             return node.edges
         limit = max(1, min(len(node.edges), int(math.sqrt(node.visit_count + 1)) + 1))
-        return node.edges[:limit]
+        if not is_root or not self._use_gumbel_root(config):
+            return node.edges[:limit]
+        ranked = sorted(
+            node.edges,
+            key=lambda edge: (
+                self._root_priority_score(edge, config),
+                edge.prior,
+                edge.cells,
+            ),
+            reverse=True,
+        )
+        return ranked[:limit]
 
     def _turn_priors(
         self,
@@ -660,6 +705,20 @@ class GuidedMctsTurnSearch:
     def _best_edge(edges: list[_Edge]) -> _Edge:
         return max(edges, key=lambda edge: (edge.visit_count, edge.mean_value, edge.prior, edge.cells))
 
+    def _best_root_edge(self, edges: list[_Edge], config: AppConfig) -> _Edge:
+        if not self._use_gumbel_root(config):
+            return self._best_edge(edges)
+        return max(
+            edges,
+            key=lambda edge: (
+                edge.visit_count,
+                edge.mean_value,
+                self._root_priority_score(edge, config),
+                edge.prior,
+                edge.cells,
+            ),
+        )
+
     @staticmethod
     def _cell_policy(edges: list[_Edge], weights: list[float]) -> tuple[tuple[Coord, float], ...]:
         mass: dict[Coord, float] = {}
@@ -735,6 +794,24 @@ class GuidedMctsTurnSearch:
             defenses,
             reason="mcts_forced_defense",
         )
+
+    @staticmethod
+    def _use_gumbel_root(config: AppConfig) -> bool:
+        return config.search.root_policy_mode == "gumbel"
+
+    @staticmethod
+    def _root_priority_score(edge: _Edge, config: AppConfig) -> float:
+        scale = max(0.0, config.search.root_gumbel_scale)
+        return math.log(max(edge.prior, 1e-6)) + (scale * edge.root_gumbel)
+
+    @staticmethod
+    def _root_selection_bonus(edge: _Edge, config: AppConfig) -> float:
+        scale = max(0.0, config.search.root_gumbel_scale)
+        return (scale * edge.root_gumbel) / (1 + edge.visit_count)
+
+    def _sample_gumbel(self) -> float:
+        uniform = min(max(self._rng.random(), 1e-9), 1.0 - 1e-9)
+        return -math.log(-math.log(uniform))
 
 def _select_device(config: AppConfig) -> torch.device:
     if config.runtime.preferred_device == "cuda" and torch.cuda.is_available():

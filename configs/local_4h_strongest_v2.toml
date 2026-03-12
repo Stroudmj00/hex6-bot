@@ -51,6 +51,8 @@ reply_depth = 1
 puct_exploration = 1.25
 dirichlet_alpha = 0.35
 dirichlet_epsilon = 0.25
+root_policy_mode = "visit_count"
+root_gumbel_scale = 1.0
 
 [training]
 bootstrap_strategy = "alphazero_self_play"

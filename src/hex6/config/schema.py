@@ -101,6 +101,8 @@ class SearchConfig:
     puct_exploration: float
     dirichlet_alpha: float
     dirichlet_epsilon: float
+    root_policy_mode: str = "visit_count"
+    root_gumbel_scale: float = 1.0
 
 
 @dataclass(frozen=True)

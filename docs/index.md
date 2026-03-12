@@ -7,8 +7,9 @@ This file is the stable starting point for new contributors and AI agents.
 1. `README.md`
 2. `AGENTS.md`
 3. `CONTRIBUTING.md`
-4. `docs/architecture.md`
-5. `docs/tools.md`
+4. `docs/current-state.md`
+5. `docs/architecture.md`
+6. `docs/tools.md`
 
 After that, pick the closest task-specific document below.
 
@@ -37,43 +38,28 @@ Top-level files:
 
 - `configs/default.toml`: base default lane.
 - `configs/fast.toml`: fastest local training loop.
-- `configs/colab.toml`: medium Colab run.
-- `configs/colab_hour.toml`: repeated cycle lane.
-- `configs/colab_strongest_v2.toml`: strongest current Colab cycle lane.
 - `configs/play.toml`: website profile.
-- `configs/colab_job_queue.toml`: priority-loop job definitions.
+- `configs/local_4h_strongest_v2.toml`: strongest stable local cycle lane.
+- `configs/local_4h_strongest_v2_gumbel.toml`: strongest experimental local cycle lane.
+- `configs/README.md`: current vs historical profile matrix.
 - `configs/experiments/search_matrix.toml`: search sweep matrix.
 - `configs/experiments/*opening_suite*.toml`: fixed opening suites for training, eval, and promotion.
 
 ## Workflow Docs
 
 - `docs/ai-agent-workflows.md`: task recipes by subsystem.
-- `docs/tools.md`: canonical commands and local-vs-Colab split.
-- `docs/colab.md`: remote-first training workflow.
-- `docs/vscode-colab-extension.md`: quickest VS Code extension path into Colab.
+- `docs/current-state.md`: the shortest current repo summary.
+- `docs/tools.md`: canonical commands and the local-first workflow.
 - `docs/vercel.md`: deploy workflow.
-- `docs/codex-orchestration.md`: AI-assisted workflow notes.
+- `docs/archive.md`: historical reports and deprecated workflows.
 
 ## Architecture And Research Docs
 
 - `docs/architecture.md`: design principles and package outline.
 - `docs/game-exploration.md`: game/rules notes.
-- `docs/model-journey.md`: checkpoint progression.
 - `docs/literature-improvements.md`: literature-backed changes.
 - `docs/literature-roadmap.md`: cross-paradigm roadmap for the strongest engine.
 - `docs/performance-roadmap.md`: measured bottlenecks and likely next performance refactors.
-- `docs/next-experiment-options.md`: next tuning ideas.
-- `docs/executive-review.md`: current high-level status.
-
-## Historical / Report Docs
-
-These are useful context, but not the first files to read when making product or engine changes:
-
-- `docs/alphazero-20-cycle-report.md`
-- `docs/alphazero-cycle-story.md`
-- `docs/board-size-ablation.md`
-- `docs/lit-vs-prelit-20m.md`
-- `docs/project-memory.md`
 
 ## Open-Source Release Notes
 

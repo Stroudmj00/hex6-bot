@@ -207,3 +207,34 @@ def test_guided_mcts_parallel_expansions_preserve_simulation_budget() -> None:
     assert serial.simulations == 5
     assert parallel.simulations == 5
     assert sum(stat.visits for stat in serial.turn_stats) == sum(stat.visits for stat in parallel.turn_stats)
+
+
+def test_guided_mcts_gumbel_root_mode_is_deterministic_for_fixed_seed() -> None:
+    config = load_config_with_overrides(
+        "configs/fast.toml",
+        {
+            "search": {
+                "root_simulations": 5,
+                "parallel_expansions_per_root": 2,
+                "dirichlet_epsilon": 0.0,
+                "root_policy_mode": "gumbel",
+                "root_gumbel_scale": 1.0,
+            }
+        },
+    )
+    model = HexPolicyValueNet(
+        input_channels=6,
+        channels=config.model.channels,
+        blocks=config.model.blocks,
+    )
+    state = GameState.initial(config.game)
+    for cell in [(0, 0), (1, 0), (0, 1), (2, 0), (1, 1)]:
+        state = state.apply_placement(cell, config.game)
+
+    first = GuidedMctsTurnSearch(model, device=torch.device("cpu"), seed=13).analyze_root(state, config)
+    second = GuidedMctsTurnSearch(model, device=torch.device("cpu"), seed=13).analyze_root(state, config)
+
+    assert first.simulations == 5
+    assert second.simulations == 5
+    assert first.chosen_turn.cells == second.chosen_turn.cells
+    assert first.turn_stats

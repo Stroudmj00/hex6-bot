@@ -50,25 +50,27 @@ Then read the nearest module and its tests.
 ## Documentation Map
 
 - `docs/index.md`: stable navigation file for humans and agents.
+- `docs/current-state.md`: shortest current repo summary and supported surface.
 - `docs/ai-agent-workflows.md`: task-specific edit/test recipes.
 - `docs/architecture.md`: package-level architecture.
 - `docs/tools.md`: canonical commands.
-- `docs/colab.md`: remote training workflow.
 - `docs/vercel.md`: deployment notes.
+- `docs/archive.md`: historical reports and deprecated workflows.
 - `docs/open-source-checklist.md`: remaining owner decisions before public release.
 
 ## Canonical Commands
 
 - Local web app: `.venv\Scripts\python -m hex6.web.run_server --config configs/play.toml --host 127.0.0.1 --port 5000`
 - Fast bootstrap: `.venv\Scripts\python -m hex6.train.run_bootstrap --config configs/fast.toml --output artifacts/bootstrap_fast`
-- Time-boxed cycles: `.venv\Scripts\python -m hex6.train.run_cycle --config configs/colab_hour.toml --output-root artifacts/bootstrap_colab_hour --minutes 60`
-- Arena eval: `.venv\Scripts\python -m hex6.eval.run_arena --config configs/colab.toml --checkpoint <checkpoint.pt> --output artifacts/arena`
+- Time-boxed cycles: `.venv\Scripts\python -m hex6.train.run_cycle --config configs/local_4h_strongest_v2.toml --output-root artifacts/alphazero_cycle_local_strongest_v2 --minutes 60 --status-backend none`
+- Experimental strongest cycle: `.venv\Scripts\python -m hex6.train.run_cycle --config configs/local_4h_strongest_v2_gumbel.toml --output-root artifacts/alphazero_cycle_local_strongest_v2_gumbel --minutes 60 --status-backend none`
+- Arena eval: `.venv\Scripts\python -m hex6.eval.run_arena --config configs/local_4h_strongest_v2.toml --checkpoint <checkpoint.pt> --output artifacts/arena`
 - Search matrix: `.venv\Scripts\python -m hex6.eval.run_search_matrix --matrix configs/experiments/search_matrix.toml --output artifacts/search_matrix`
 
 ## Source Of Truth Files
 
 - Global schema: `src/hex6/config/schema.py`
-- Runtime profiles: `configs/default.toml`, `configs/fast.toml`, `configs/colab.toml`, `configs/colab_hour.toml`, `configs/play.toml`
+- Runtime profiles: `configs/default.toml`, `configs/fast.toml`, `configs/play.toml`, `configs/local_4h_strongest_v2.toml`, `configs/local_4h_strongest_v2_gumbel.toml`
 - Web API: `src/hex6/web/app.py`
 - Game rules/state transitions: `src/hex6/game/state.py`
 - Search engines: `src/hex6/search/baseline.py`, `src/hex6/search/guided_mcts.py`
@@ -110,3 +112,4 @@ Then read the nearest module and its tests.
 - Do not commit generated artifacts under `artifacts/`.
 - Do not hardcode tokens. `HEX6_GITHUB_TOKEN` / `GITHUB_TOKEN` are resolved at runtime for GitHub status transport.
 - Treat `status_backend=github_branch` as a networked mode; keep tests deterministic by using `none` or `file` backends.
+- Historical configs and docs are kept for reproducibility; prefer the supported surface listed in `docs/current-state.md`.

@@ -71,8 +71,8 @@ Use for bootstrap generation, loop scheduling, or checkpoint evaluation behavior
    - `src/hex6/eval/*.py` as needed
 2. Keep long-running commands optional and config-driven.
 3. Default policy:
-   - local only for smoke/debug jobs expected to finish in 20 minutes or less
-   - Colab for longer training/eval runs
+   - local machine for training, evaluation, profiling, and debugging
+   - historical remote workflows are non-canonical; use them only if you are intentionally reproducing an older path
 4. Update/add tests:
    - `tests/test_arena.py`
    - `tests/test_opening_suite.py`
@@ -80,23 +80,20 @@ Use for bootstrap generation, loop scheduling, or checkpoint evaluation behavior
    - `.venv\Scripts\python -m pytest tests/test_arena.py tests/test_opening_suite.py`
    - Optional smoke: `.venv\Scripts\python -m hex6.train.run_bootstrap --config configs/fast.toml --output artifacts/bootstrap_fast`
 
-## Workflow 6: Colab Priority Queue Change
+## Workflow 6: Historical Remote Workflow Change
 
-Use for always-on Colab GPU scheduling, queue priorities, or job selection policy.
+Use only if you are intentionally maintaining or reproducing archived Colab/remote automation behavior.
 
 1. Edit:
-   - `configs/colab_job_queue.toml`
+   - `configs/colab*.toml`
    - `src/hex6/integration/run_priority_loop.py`
-   - `docs/colab.md` and `docs/tools.md` if command flow changes
-2. Keep job definitions explicit:
-   - `id`, `kind`, `priority`, `min_interval_minutes`
-   - optional fairness cap: `max_consecutive_runs`
+   - `docs/colab.md`
+2. Keep those changes isolated from the primary local workflow.
 3. Update/add tests:
    - `tests/test_priority_loop.py`
 4. Run:
    - `.venv\Scripts\ruff check src/hex6/integration/run_priority_loop.py tests/test_priority_loop.py`
    - `.venv\Scripts\python -m pytest tests/test_priority_loop.py`
-   - Optional dry-run: `.venv\Scripts\python -m hex6.integration.run_priority_loop --queue configs/colab_job_queue.toml --state artifacts/colab_queue/state.dev.json --once --dry-run`
 
 ## Final Pre-PR Check
 

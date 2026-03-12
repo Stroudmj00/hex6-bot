@@ -1,5 +1,9 @@
 # Colab Setup
 
+Deprecated / historical workflow.
+
+The repo is local-first again. Keep this file only for reproducing old experiments or recovering older remote automation. For the supported workflow, read `docs/current-state.md` and `docs/tools.md` first.
+
 ## Goal
 
 Run the same guided-MCTS AlphaZero-style training loop on Colab so GPU-backed training and
@@ -7,10 +11,9 @@ local development use the same configs and artifact format.
 
 ## Operating policy
 
-- local machine: code editing, unit tests, CPU-only debug/profiling, and web/debug work
-- do not use the local GPU for experimental training or evaluation
-- Colab: all real training runs, pipeline comparisons, longer evals, and efficiency experiments
-- long runs should prefer the queue/automation path so results and status land in the same place every time
+- local machine: the default environment for development, training, evaluation, and profiling
+- Colab: optional remote environment if you explicitly choose to use it later
+- long Colab runs should prefer the queue/automation path so results and status land in the same place every time
 
 ## GPU policy
 

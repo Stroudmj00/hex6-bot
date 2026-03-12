@@ -2,9 +2,8 @@
 
 ## Core local commands
 
-Use the local machine for tests, website work, and CPU-only debug/profiling.
-Do not use the local GPU for experimental training or evaluation.
-Use Colab for all real training, evaluation, and efficiency experiments.
+Use the local machine for development, training, evaluation, and profiling.
+Historical Colab tooling remains in the repo for reproducibility only; it is not part of the primary workflow.
 
 Website:
 
@@ -27,7 +26,13 @@ One-shot bootstrap training:
 Repeated training/eval cycles:
 
 ```powershell
-.venv\Scripts\python -m hex6.train.run_cycle --config configs/colab_strongest_v2.toml --output-root artifacts/bootstrap_colab_strongest_v2 --minutes 60
+.venv\Scripts\python -m hex6.train.run_cycle --config configs/local_4h_strongest_v2.toml --output-root artifacts/alphazero_cycle_local_strongest_v2 --minutes 60 --status-backend none
+```
+
+Experimental strongest cycle:
+
+```powershell
+.venv\Scripts\python -m hex6.train.run_cycle --config configs/local_4h_strongest_v2_gumbel.toml --output-root artifacts/alphazero_cycle_local_strongest_v2_gumbel --minutes 60 --status-backend none
 ```
 
 Cycle promotion now uses a dedicated stronger lane:
@@ -39,7 +44,7 @@ Cycle promotion now uses a dedicated stronger lane:
 Arena eval:
 
 ```powershell
-.venv\Scripts\python -m hex6.eval.run_arena --config configs/colab.toml --checkpoint artifacts/bootstrap_fast/bootstrap_model.pt --output artifacts/arena
+.venv\Scripts\python -m hex6.eval.run_arena --config configs/local_4h_strongest_v2.toml --checkpoint artifacts/alphazero_cycle_4h_strongest_v2/cycle_002/bootstrap_model.pt --output artifacts/arena
 ```
 
 Tournament eval:
@@ -54,34 +59,10 @@ Search matrix:
 .venv\Scripts\python -m hex6.eval.run_search_matrix --matrix configs/experiments/search_matrix.toml --output artifacts/search_matrix
 ```
 
-Watch Colab status:
+Local runtime benchmark:
 
 ```powershell
-.venv\Scripts\python -m hex6.integration.watch_status --config configs/colab_hour.toml --run-id latest
-```
-
-Colab priority loop:
-
-```powershell
-.venv\Scripts\python -m hex6.integration.run_priority_loop --queue configs/colab_job_queue.toml --state artifacts/colab_queue/state.dev.json --once --dry-run
-```
-
-Colab helper script:
-
-```powershell
-python scripts/colab_run.py cycle --repo-root /content/drive/MyDrive/Hex-A-Toe --config configs/colab_strongest_v2.toml --output-root artifacts/bootstrap_colab_strongest_v2 --minutes 60
-```
-
-Colab runtime benchmark:
-
-```powershell
-python scripts/colab_run.py runtime-benchmark --repo-root /content/drive/MyDrive/Hex-A-Toe --minimum-gpu-tier V100 --config configs/colab_strongest_v2.toml --output artifacts/runtime_parallelism_colab --cpu-threads 8 --interop-threads 2 --self-play-workers 4 8 12 --data-loader-workers 2 --parallel-expansions-per-root 4 6 8 --root-simulations 96 --bootstrap-games 2 --epochs 1 --max-game-plies 0
-```
-
-Colab efficiency queue:
-
-```powershell
-.venv\Scripts\python -m hex6.integration.run_priority_loop --queue configs/colab_efficiency_queue.toml --state artifacts/colab_queue/efficiency.state.dev.json --once --dry-run
+.venv\Scripts\python -m hex6.train.benchmark_runtime --config configs/local_4h_strongest_v2.toml --output artifacts/runtime_parallelism_local --cpu-threads 8 --interop-threads 2 --self-play-workers 4 8 12 --data-loader-workers 0 --parallel-expansions-per-root 4 6 8 --root-simulations 96 --bootstrap-games 2 --epochs 1 --max-game-plies 0
 ```
 
 Refresh the executive review:
@@ -181,5 +162,13 @@ Example:
 Benchmark `self_play_workers` and `parallel_expansions_per_root` together without post-train eval noise:
 
 ```powershell
-.venv\Scripts\python -m hex6.train.benchmark_runtime --config configs/colab_strongest_v2.toml --output artifacts/runtime_parallelism_sweep --cpu-threads 8 --interop-threads 2 --self-play-workers 4 8 12 --data-loader-workers 0 --parallel-expansions-per-root 1 4 6 8 --root-simulations 96 --bootstrap-games 2 --epochs 1 --max-game-plies 0
+.venv\Scripts\python -m hex6.train.benchmark_runtime --config configs/local_4h_strongest_v2.toml --output artifacts/runtime_parallelism_sweep --cpu-threads 8 --interop-threads 2 --self-play-workers 4 8 12 --data-loader-workers 0 --parallel-expansions-per-root 1 4 6 8 --root-simulations 96 --bootstrap-games 2 --epochs 1 --max-game-plies 0
 ```
+
+## Historical / Deprecated Workflow Notes
+
+- `docs/colab.md`
+- `docs/vscode-colab-extension.md`
+- `docs/archive.md`
+
+These remain in the repo so older experiment notes and automation references still resolve, but they are not the primary workflow surface anymore.

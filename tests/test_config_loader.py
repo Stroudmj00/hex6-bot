@@ -45,6 +45,8 @@ def test_load_default_config() -> None:
     assert config.search.puct_exploration == 1.25
     assert config.search.dirichlet_alpha == 0.35
     assert config.search.dirichlet_epsilon == 0.25
+    assert config.search.root_policy_mode == "visit_count"
+    assert config.search.root_gumbel_scale == 1.0
 
 
 def test_load_fast_config() -> None:
@@ -69,6 +71,8 @@ def test_load_fast_config() -> None:
     assert config.evaluation.promotion_games_per_match == 12
     assert config.search.root_simulations == 48
     assert config.search.parallel_expansions_per_root == 1
+    assert config.search.root_policy_mode == "visit_count"
+    assert config.search.root_gumbel_scale == 1.0
     assert config.evaluation.board_width_override == 0
     assert config.evaluation.board_height_override == 0
     assert config.evaluation.post_train_opening_suite == "configs/experiments/conversion_opening_suite.toml"
@@ -162,6 +166,8 @@ def test_load_local_4h_strongest_v2_config() -> None:
     assert config.training.reanalyse_max_examples == 64
     assert config.model.blocks == 3
     assert config.runtime.record_resource_usage is True
+    assert config.search.root_policy_mode == "visit_count"
+    assert config.search.root_gumbel_scale == 1.0
 
 
 def test_load_colab_strongest_v2_config() -> None:
@@ -174,3 +180,15 @@ def test_load_colab_strongest_v2_config() -> None:
     assert config.training.reanalyse_max_examples == 64
     assert config.model.blocks == 3
     assert config.integration.status_backend == "github_branch"
+    assert config.search.root_policy_mode == "visit_count"
+    assert config.search.root_gumbel_scale == 1.0
+
+
+def test_load_local_4h_strongest_v2_gumbel_config() -> None:
+    config = load_config("configs/local_4h_strongest_v2_gumbel.toml")
+
+    assert config.search.root_simulations == 96
+    assert config.search.parallel_expansions_per_root == 6
+    assert config.search.root_policy_mode == "gumbel"
+    assert config.search.root_gumbel_scale == 1.0
+    assert config.training.bootstrap_opening_suite == "configs/experiments/bootstrap_conversion_opening_suite_v2.toml"

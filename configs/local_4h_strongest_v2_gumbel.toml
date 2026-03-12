@@ -1,6 +1,6 @@
 [project]
 name = "hex6"
-phase = "fast_board_25"
+phase = "local_4h_strongest_v2_gumbel"
 
 [runtime]
 python_version = "3.11"
@@ -15,8 +15,8 @@ resource_poll_seconds = 5.0
 
 [game]
 board_mode = "sparse_bounded"
-board_width = 25
-board_height = 25
+board_width = 15
+board_height = 15
 board_center_q = 0
 board_center_r = 0
 coordinate_system = "axial"
@@ -28,11 +28,11 @@ contiguous_lines_only = true
 
 [prototype]
 analysis_margin = 8
-outer_search_margin = 8
+outer_search_margin = 9
 prune_globally_dead_cells = true
 allow_long_range_islands = false
-first_stone_candidate_limit = 6
-second_stone_candidate_limit = 2
+first_stone_candidate_limit = 8
+second_stone_candidate_limit = 3
 frontier_distance = 1
 island_min_distance = 5
 island_max_distance = 12
@@ -43,44 +43,44 @@ algorithm = "guided_mcts"
 factorize_two_stone_actions = true
 use_progressive_widening = true
 use_transposition_table = true
-root_simulations = 24
-parallel_expansions_per_root = 1
+root_simulations = 96
+parallel_expansions_per_root = 6
 tactical_solver = "threat_search"
-shallow_reply_width = 1
+shallow_reply_width = 2
 reply_depth = 1
 puct_exploration = 1.25
 dirichlet_alpha = 0.35
 dirichlet_epsilon = 0.25
-root_policy_mode = "visit_count"
+root_policy_mode = "gumbel"
 root_gumbel_scale = 1.0
 
 [training]
 bootstrap_strategy = "alphazero_self_play"
-symmetry_augmentation = false
+symmetry_augmentation = true
 mixed_precision = true
-self_play_workers = 4
-data_loader_workers = 0
+self_play_workers = 8
+data_loader_workers = 2
 pin_memory = true
-replay_buffer_size = 5000
-bootstrap_games = 4
+replay_buffer_size = 40000
+bootstrap_games = 8
 max_game_plies = 0
-batch_size = 8
-epochs = 1
-learning_rate = 0.001
+batch_size = 24
+epochs = 2
+learning_rate = 0.0008
 policy_target = "visit_distribution"
-bootstrap_opening_suite = "configs/experiments/opening_suite.toml"
+bootstrap_opening_suite = "configs/experiments/bootstrap_conversion_opening_suite_v2.toml"
 bootstrap_seeded_start_fraction = 0.75
 self_play_temperature = 1.0
 self_play_temperature_drop_ply = 24
 self_play_temperature_after_drop = 0.2
-reanalyse_fraction = 0.0
-reanalyse_max_examples = 0
+reanalyse_fraction = 0.125
+reanalyse_max_examples = 64
 
 [model]
 architecture = "hex_resnet_tiny"
-board_crop_radius = 6
+board_crop_radius = 8
 channels = 16
-blocks = 2
+blocks = 3
 
 [scoring]
 frontier = 1.0
@@ -110,15 +110,15 @@ run_history_path = "status/runs"
 watch_poll_seconds = 5.0
 
 [evaluation]
-arena_games = 2
+arena_games = 6
 max_game_plies = 0
 board_width_override = 0
 board_height_override = 0
 post_train_eval = "tournament"
 post_train_max_game_plies = 0
-post_train_opening_suite = "configs/experiments/opening_suite.toml"
+post_train_opening_suite = "configs/experiments/conversion_opening_suite.toml"
 promotion_games_per_match = 12
-promotion_opening_suite = "configs/experiments/promotion_opening_suite.toml"
+promotion_opening_suite = "configs/experiments/promotion_conversion_opening_suite.toml"
 promotion_include_baseline = true
 promotion_require_candidate_rank_one = true
 promotion_min_score_delta = 0.5
