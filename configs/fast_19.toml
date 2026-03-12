@@ -75,6 +75,7 @@ self_play_temperature_drop_ply = 24
 self_play_temperature_after_drop = 0.2
 reanalyse_fraction = 0.0
 reanalyse_max_examples = 0
+reanalyse_priority = "recent"
 
 [model]
 architecture = "hex_resnet_tiny"

@@ -28,6 +28,7 @@ from hex6.train.resource_usage import ResourceMonitor
 
 SUPPORTED_POLICY_TARGETS = frozenset({"first_stone_only", "all_placements", "visit_distribution"})
 SUPPORTED_BOOTSTRAP_STRATEGIES = frozenset({"search_supervision_then_self_play", "alphazero_self_play"})
+SUPPORTED_REANALYSE_PRIORITIES = frozenset({"recent", "draw_focus"})
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,8 @@ class BootstrapExample:
     state: GameState
     policy_distribution: tuple[tuple[Coord, float], ...]
     value_target: float
+    opening_name: str | None = None
+    terminal_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +46,7 @@ class BootstrapGameResult:
     winner: str | None
     plies: int
     opening_name: str | None
+    termination: str | None
     examples: tuple[BootstrapExample, ...]
 
 
@@ -552,10 +556,19 @@ def _generate_bootstrap_game(
         )
 
     winner = state.winner
+    termination = state.draw_reason or ("win" if winner is not None else None)
     examples: list[BootstrapExample] = []
     for position, policy_distribution in trajectory:
         value_target = 0.0 if winner is None else (1.0 if position.to_play == winner else -1.0)
-        examples.append(BootstrapExample(position, policy_distribution, value_target))
+        examples.append(
+            BootstrapExample(
+                position,
+                policy_distribution,
+                value_target,
+                opening_name=opening.name if opening else None,
+                terminal_reason=termination,
+            )
+        )
 
         if config.training.symmetry_augmentation:
             for steps in range(1, 6):
@@ -564,6 +577,8 @@ def _generate_bootstrap_game(
                         state=rotate_state(position, steps),
                         policy_distribution=_rotate_policy_distribution(policy_distribution, steps),
                         value_target=value_target,
+                        opening_name=opening.name if opening else None,
+                        terminal_reason=termination,
                     )
                 )
 
@@ -572,6 +587,7 @@ def _generate_bootstrap_game(
         winner=winner,
         plies=max(0, state.ply_count - (opening.state.ply_count if opening else 0)),
         opening_name=opening.name if opening else None,
+        termination=termination,
         examples=tuple(examples),
     )
 
@@ -723,10 +739,19 @@ def _finalize_bootstrap_game_result(
     config: AppConfig,
 ) -> BootstrapGameResult:
     winner = final_state.winner
+    termination = final_state.draw_reason or ("win" if winner is not None else None)
     examples: list[BootstrapExample] = []
     for position, policy_distribution in trajectory:
         value_target = 0.0 if winner is None else (1.0 if position.to_play == winner else -1.0)
-        examples.append(BootstrapExample(position, policy_distribution, value_target))
+        examples.append(
+            BootstrapExample(
+                position,
+                policy_distribution,
+                value_target,
+                opening_name=opening_name,
+                terminal_reason=termination,
+            )
+        )
 
         if config.training.symmetry_augmentation:
             for steps in range(1, 6):
@@ -735,6 +760,8 @@ def _finalize_bootstrap_game_result(
                         state=rotate_state(position, steps),
                         policy_distribution=_rotate_policy_distribution(policy_distribution, steps),
                         value_target=value_target,
+                        opening_name=opening_name,
+                        terminal_reason=termination,
                     )
                 )
 
@@ -743,6 +770,7 @@ def _finalize_bootstrap_game_result(
         winner=winner,
         plies=max(0, final_state.ply_count - starting_ply),
         opening_name=opening_name,
+        termination=termination,
         examples=tuple(examples),
     )
 
@@ -918,6 +946,11 @@ def _validate_reanalyse_settings(config: AppConfig) -> None:
             "training.reanalyse_max_examples must be >= 0; "
             f"received {config.training.reanalyse_max_examples}"
         )
+    if config.training.reanalyse_priority not in SUPPORTED_REANALYSE_PRIORITIES:
+        raise ValueError(
+            "training.reanalyse_priority must be one of "
+            f"{sorted(SUPPORTED_REANALYSE_PRIORITIES)}; received {config.training.reanalyse_priority}"
+        )
     if fraction > 0.0 and config.training.bootstrap_strategy != "alphazero_self_play":
         raise ValueError("training.reanalyse_fraction requires training.bootstrap_strategy = 'alphazero_self_play'")
 
@@ -975,13 +1008,18 @@ def _reanalyse_recent_examples(
     if target <= 0:
         return merged_examples, 0
 
-    start_index = carryover_examples - target
     search = GuidedMctsTurnSearch(model, device=device)
     batch_size = max(1, config.training.self_play_workers)
     refreshed = list(merged_examples)
-    for batch_start in range(start_index, carryover_examples, batch_size):
-        batch_end = min(batch_start + batch_size, carryover_examples)
-        batch_examples = refreshed[batch_start:batch_end]
+    selected_indices = _select_reanalysis_indices(
+        merged_examples=refreshed,
+        carryover_examples=carryover_examples,
+        target=target,
+        priority=config.training.reanalyse_priority,
+    )
+    for batch_start in range(0, len(selected_indices), batch_size):
+        batch_indices = selected_indices[batch_start : batch_start + batch_size]
+        batch_examples = [refreshed[index] for index in batch_indices]
         analyses = search.analyze_roots(
             [example.state for example in batch_examples],
             config,
@@ -989,13 +1027,40 @@ def _reanalyse_recent_examples(
             temperature=None,
             add_root_noise=False,
         )
-        for offset, (example, analysis) in enumerate(zip(batch_examples, analyses, strict=True)):
-            refreshed[batch_start + offset] = BootstrapExample(
+        for example_index, example, analysis in zip(batch_indices, batch_examples, analyses, strict=True):
+            refreshed[example_index] = BootstrapExample(
                 state=example.state,
                 policy_distribution=_policy_distribution_for_analysis(analysis, config),
                 value_target=example.value_target,
+                opening_name=example.opening_name,
+                terminal_reason=example.terminal_reason,
             )
     return refreshed, target
+
+
+def _select_reanalysis_indices(
+    *,
+    merged_examples: list[BootstrapExample],
+    carryover_examples: int,
+    target: int,
+    priority: str,
+) -> list[int]:
+    if target <= 0 or carryover_examples <= 0:
+        return []
+    if priority == "recent":
+        start_index = max(0, carryover_examples - target)
+        return list(range(start_index, carryover_examples))
+
+    ranked = sorted(
+        range(carryover_examples),
+        key=lambda index: (
+            merged_examples[index].terminal_reason == "board_exhausted",
+            (merged_examples[index].opening_name or "").startswith("o_must_block_"),
+            index,
+        ),
+        reverse=True,
+    )
+    return sorted(ranked[:target])
 
 
 def _load_bootstrap_opening_suite(

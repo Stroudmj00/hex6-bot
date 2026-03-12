@@ -127,6 +127,7 @@ class TrainingConfig:
     self_play_temperature_after_drop: float
     reanalyse_fraction: float
     reanalyse_max_examples: int
+    reanalyse_priority: str = "recent"
 
 
 @dataclass(frozen=True)
@@ -214,7 +215,12 @@ class AppConfig:
             game=GameConfig(players=tuple(data["game"]["players"]), **_without(data["game"], "players")),
             prototype=PrototypeConfig(**data["prototype"]),
             search=SearchConfig(**data["search"]),
-            training=TrainingConfig(**data["training"]),
+            training=TrainingConfig(
+                **{
+                    **data["training"],
+                    "reanalyse_priority": data["training"].get("reanalyse_priority", "recent"),
+                }
+            ),
             model=ModelConfig(**data["model"]),
             scoring=ScoringConfig(**data["scoring"]),
             heuristic=HeuristicConfig(

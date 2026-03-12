@@ -171,6 +171,16 @@ def test_generate_bootstrap_examples_rejects_reanalyse_without_alphazero() -> No
         generate_bootstrap_examples(config, config_path="configs/play.toml")
 
 
+def test_generate_bootstrap_examples_rejects_invalid_reanalyse_priority() -> None:
+    config = load_config_with_overrides(
+        "configs/fast.toml",
+        {"training": {"reanalyse_priority": "bad_priority"}},
+    )
+
+    with pytest.raises(ValueError, match="reanalyse_priority"):
+        generate_bootstrap_examples(config, config_path="configs/fast.toml")
+
+
 def test_generate_bootstrap_examples_rejects_missing_opening_suite(tmp_path: Path) -> None:
     config_path = tmp_path / "nested" / "bootstrap.toml"
     config_path.parent.mkdir(parents=True)
@@ -378,3 +388,61 @@ def test_merge_replay_buffer_reanalyses_recent_examples(monkeypatch, tmp_path: P
     assert metrics["reanalysed_examples"] == 1
     assert merged[0].policy_distribution == (((2, 2), 1.0),)
     assert merged[1].policy_distribution == current.policy_distribution
+
+
+def test_merge_replay_buffer_draw_focus_prioritizes_board_exhausted_examples(monkeypatch, tmp_path: Path) -> None:
+    config = load_config_with_overrides(
+        "configs/fast.toml",
+        {
+            "training": {
+                "reanalyse_fraction": 1.0,
+                "reanalyse_max_examples": 1,
+                "reanalyse_priority": "draw_focus",
+            }
+        },
+    )
+    draw_state = GameState.initial(config.game).apply_placement((0, 0), config.game)
+    win_state = draw_state.apply_placement((1, 0), config.game)
+    draw_example = BootstrapExample(
+        draw_state,
+        (((0, 1), 1.0),),
+        0.0,
+        opening_name="o_must_block_horizontal_press",
+        terminal_reason="board_exhausted",
+    )
+    win_example = BootstrapExample(
+        win_state,
+        (((1, 1), 1.0),),
+        1.0,
+        opening_name="x_can_finish_horizontal",
+        terminal_reason="win",
+    )
+    current = BootstrapExample(win_state, (((2, 1), 1.0),), 0.0)
+    replay_buffer_path = tmp_path / "replay_draw_focus.pkl"
+    with replay_buffer_path.open("wb") as handle:
+        pickle.dump([draw_example, win_example], handle)
+
+    def fake_analyze_roots(self, states, _config, **_kwargs):
+        return [
+            SimpleNamespace(
+                cell_policy=(((2, 2), 1.0),),
+                chosen_turn=SimpleNamespace(cells=((2, 2), (2, 3))),
+            )
+            for _ in states
+        ]
+
+    monkeypatch.setattr("hex6.search.guided_mcts.GuidedMctsTurnSearch.analyze_roots", fake_analyze_roots)
+    model = HexPolicyValueNet(input_channels=6, channels=config.model.channels, blocks=config.model.blocks)
+
+    merged, metrics = _merge_replay_buffer_examples(
+        current_examples=[current],
+        config=config,
+        model=model,
+        device=torch.device("cpu"),
+        replay_buffer_path=replay_buffer_path,
+        replay_buffer_size=8,
+    )
+
+    assert metrics["reanalysed_examples"] == 1
+    assert merged[0].policy_distribution == (((2, 2), 1.0),)
+    assert merged[1].policy_distribution == win_example.policy_distribution

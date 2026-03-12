@@ -39,6 +39,7 @@ def test_load_default_config() -> None:
     assert config.training.self_play_temperature_after_drop == 0.2
     assert config.training.reanalyse_fraction == 0.0
     assert config.training.reanalyse_max_examples == 0
+    assert config.training.reanalyse_priority == "recent"
     assert config.runtime.record_resource_usage is True
     assert config.runtime.resource_poll_seconds == 5.0
     assert config.search.reply_depth == 1
@@ -68,6 +69,7 @@ def test_load_fast_config() -> None:
     assert config.training.self_play_temperature_after_drop == 0.2
     assert config.training.reanalyse_fraction == 0.0
     assert config.training.reanalyse_max_examples == 0
+    assert config.training.reanalyse_priority == "recent"
     assert config.evaluation.promotion_games_per_match == 12
     assert config.search.root_simulations == 48
     assert config.search.parallel_expansions_per_root == 1
@@ -151,6 +153,7 @@ def test_load_local_4h_strongest_config() -> None:
     assert config.evaluation.board_height_override == 0
     assert config.training.reanalyse_fraction == 0.0
     assert config.training.reanalyse_max_examples == 0
+    assert config.training.reanalyse_priority == "recent"
     assert config.runtime.record_resource_usage is True
 
 
@@ -164,6 +167,7 @@ def test_load_local_4h_strongest_v2_config() -> None:
     assert config.evaluation.board_height_override == 0
     assert config.training.reanalyse_fraction == 0.125
     assert config.training.reanalyse_max_examples == 64
+    assert config.training.reanalyse_priority == "draw_focus"
     assert config.model.blocks == 3
     assert config.runtime.record_resource_usage is True
     assert config.search.root_policy_mode == "visit_count"
@@ -178,6 +182,7 @@ def test_load_colab_strongest_v2_config() -> None:
     assert config.training.bootstrap_opening_suite == "configs/experiments/bootstrap_conversion_opening_suite_v2.toml"
     assert config.training.reanalyse_fraction == 0.125
     assert config.training.reanalyse_max_examples == 64
+    assert config.training.reanalyse_priority == "draw_focus"
     assert config.model.blocks == 3
     assert config.integration.status_backend == "github_branch"
     assert config.search.root_policy_mode == "visit_count"
@@ -192,3 +197,4 @@ def test_load_local_4h_strongest_v2_gumbel_config() -> None:
     assert config.search.root_policy_mode == "gumbel"
     assert config.search.root_gumbel_scale == 1.0
     assert config.training.bootstrap_opening_suite == "configs/experiments/bootstrap_conversion_opening_suite_v2.toml"
+    assert config.training.reanalyse_priority == "draw_focus"
