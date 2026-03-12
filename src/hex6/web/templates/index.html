@@ -34,9 +34,22 @@
         </div>
 
         <div class="hero-rail">
+          <section class="mode-card" data-mode-card="human_vs_bot">
+            <p class="eyebrow">Hosted Champion</p>
+            <h2>Play vs Champion</h2>
+            <p>
+              Challenge the current strongest published checkpoint directly. This mode uses the hosted engine and is
+              the main production showcase lane.
+            </p>
+            <div class="button-row">
+              <button id="start-hosted-x" class="primary" type="button">Play First</button>
+              <button id="start-hosted-o" class="secondary" type="button">Play Second</button>
+            </div>
+          </section>
+
           <section class="mode-card" data-mode-card="local_ai">
             <p class="eyebrow">Browser-Owned</p>
-            <h2>Play vs AI</h2>
+            <h2>Play vs Browser AI</h2>
             <p>
               The default AI mode runs locally in JavaScript, so the player device services the match instead of
               requiring a server turn-by-turn.
@@ -59,6 +72,25 @@
             </div>
           </section>
 
+          <section class="mode-card" data-mode-card="human_vs_human">
+            <p class="eyebrow">Invite Match</p>
+            <h2>Play with a Friend</h2>
+            <p>
+              Create an invite code and share it. Both players load the same live board and take turns in real time.
+            </p>
+            <div class="button-row">
+              <button id="start-invite" class="primary" type="button">Create Invite</button>
+            </div>
+            <div class="invite-row">
+              <label for="invite-code-input" class="hint">Or join with code</label>
+              <div class="invite-controls">
+                <input id="invite-code-input" class="invite-input" autocomplete="off" placeholder="Enter invite code" type="text" />
+                <button id="join-invite" class="secondary" type="button">Join Invite</button>
+              </div>
+            </div>
+            <p id="active-invite-code" class="hint">No invite active.</p>
+          </section>
+
           <section class="mode-card" data-mode-card="spectator">
             <p class="eyebrow">Engine-Backed</p>
             <h2>Watch Engine Match</h2>
@@ -77,7 +109,7 @@
         <article class="signal-card">
           <span class="label">Hosted Engine</span>
           <strong>{{ bot_label }}</strong>
-          <p>{{ config_name }} &middot; spectator lane available.</p>
+          <p>{{ config_name }} &middot; champion play and spectator lanes available.</p>
         </article>
         <article class="signal-card">
           <span class="label">Game Goal</span>
@@ -98,7 +130,7 @@
               <p class="eyebrow">Current Match</p>
               <h2 id="board-title">{{ board_title }}</h2>
               <p id="board-subtitle" class="hint">
-                Start a local AI match, a friend match, or an engine spectator session.
+                Start a hosted champion match, a browser AI match, a friend match, or an engine spectator session.
               </p>
             </div>
             <div class="zoom-controls">
@@ -180,8 +212,8 @@
           <section class="side-card subtle-card">
             <p class="eyebrow">Why This Setup</p>
             <p class="hint">
-              Friend matches and browser AI matches stay on the player device. The hosted bot remains available for
-              showcase sessions instead of carrying the default traffic pattern.
+              Browser AI and friend matches stay on the player device, while the hosted champion remains available
+              for production play and showcase sessions.
             </p>
           </section>
         </aside>

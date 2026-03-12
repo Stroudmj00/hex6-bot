@@ -1,0 +1,7 @@
+{
+  "source_checkpoint": "artifacts/alphazero_cycle_local_strongest_v2_gumbel_drawfocus/cycle_002/bootstrap_model.pt",
+  "source_run": "alphazero_cycle_local_strongest_v2_gumbel_drawfocus",
+  "source_cycle": 2,
+  "selection_basis": "current best validated champion and canonical standardized Elo leader",
+  "notes": "Bundled production checkpoint for Vercel and other web deployments."
+}

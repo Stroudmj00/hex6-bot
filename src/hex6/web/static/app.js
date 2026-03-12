@@ -2,10 +2,16 @@ const localGame = window.Hex6LocalGame.createHelpers(window.HEX6_BOOTSTRAP || {}
 const GAME = localGame.game;
 
 const board = document.getElementById("board");
+const startHostedXButton = document.getElementById("start-hosted-x");
+const startHostedOButton = document.getElementById("start-hosted-o");
 const startLocalAiXButton = document.getElementById("start-local-ai-x");
 const startLocalAiOButton = document.getElementById("start-local-ai-o");
 const startFriendButton = document.getElementById("start-friend");
+const startInviteButton = document.getElementById("start-invite");
+const joinInviteButton = document.getElementById("join-invite");
 const startSpectatorButton = document.getElementById("start-spectator");
+const inviteCodeInput = document.getElementById("invite-code-input");
+const inviteCodeDisplay = document.getElementById("active-invite-code");
 const autoplayButton = document.getElementById("toggle-autoplay");
 const clearButton = document.getElementById("clear-selection");
 const submitButton = document.getElementById("submit-move");
@@ -44,6 +50,8 @@ const appState = {
   localState: null,
   localContext: null,
   selectedCells: [],
+  myPlayer: null,
+  inviteCode: null,
   camera: { x: 0, y: 0 },
   zoom: 1,
   pointerState: null,
@@ -53,9 +61,13 @@ const appState = {
   flashTimer: null,
 };
 
+startHostedXButton?.addEventListener("click", () => startHostedGame("x"));
+startHostedOButton?.addEventListener("click", () => startHostedGame("o"));
 startLocalAiXButton?.addEventListener("click", () => startLocalAiGame("x"));
 startLocalAiOButton?.addEventListener("click", () => startLocalAiGame("o"));
 startFriendButton?.addEventListener("click", startFriendGame);
+startInviteButton?.addEventListener("click", startInviteGame);
+joinInviteButton?.addEventListener("click", joinInviteGame);
 startSpectatorButton?.addEventListener("click", startSpectatorGame);
 autoplayButton?.addEventListener("click", toggleAutoplay);
 clearButton?.addEventListener("click", clearSelection);
@@ -87,8 +99,10 @@ function startLocalAiGame(humanPlayer) {
       : { x: LOCAL_AI_NAME, o: "You" },
   };
   appState.currentMode = "local_ai";
+  appState.myPlayer = humanPlayer;
   appState.selectedCells = [];
   appState.payload = localGame.buildLocalPayload(appState.localState, appState.localContext);
+  appState.inviteCode = null;
   resetView();
   render();
 
@@ -113,11 +127,115 @@ function startFriendGame() {
     players: { x: "Friend 1", o: "Friend 2" },
   };
   appState.currentMode = "local_friend";
+  appState.myPlayer = null;
   appState.selectedCells = [];
   appState.payload = localGame.buildLocalPayload(appState.localState, appState.localContext);
+  appState.inviteCode = null;
   resetView();
   render();
   showMessage("Friend match ready.");
+}
+
+async function startHostedGame(humanPlayer) {
+  stopAutoplay();
+  cancelLocalAiTurn();
+  try {
+    const response = await fetch(apiPath("api/new-game"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ human: humanPlayer }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload?.state || !payload?.session_id) {
+      showMessage(payload?.message || payload?.error || "Unable to start the hosted champion match.");
+      return;
+    }
+
+    appState.payload = payload;
+    appState.sessionId = payload.session_id;
+    appState.localState = null;
+    appState.localContext = null;
+    appState.currentMode = "human_vs_bot";
+    appState.myPlayer = humanPlayer;
+    appState.inviteCode = null;
+    appState.selectedCells = [];
+    resetView();
+    render();
+    showMessage(humanPlayer === "x" ? "Hosted champion match ready. You move first." : "Hosted champion match ready. The champion will open.");
+  } catch (_error) {
+    showMessage("Unable to start the hosted champion match.");
+  }
+}
+
+async function startInviteGame() {
+  stopAutoplay();
+  cancelLocalAiTurn();
+  try {
+    const response = await fetch(apiPath("api/create-invite"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ human: "x" }),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload?.state || !payload?.session_id) {
+      showMessage(payload?.message || payload?.error || "Unable to create an invite.");
+      return;
+    }
+
+    appState.payload = payload;
+    appState.sessionId = payload.session_id;
+    appState.localState = null;
+    appState.localContext = null;
+    appState.currentMode = "human_vs_human";
+    appState.myPlayer = payload.assigned_player || "x";
+    appState.inviteCode = payload.invite_code || null;
+    appState.selectedCells = [];
+    resetView();
+    render();
+    renderInviteCodeDisplay();
+    showMessage(`Invite created: ${appState.inviteCode || "ready"}. You are ${appState.myPlayer.toUpperCase()}.`);
+  } catch (_error) {
+    showMessage("Unable to create an invite.");
+  }
+}
+
+async function joinInviteGame() {
+  stopAutoplay();
+  cancelLocalAiTurn();
+  const rawInviteCode = inviteCodeInput?.value || "";
+  const inviteCode = String(rawInviteCode).trim();
+  if (!inviteCode) {
+    showMessage("Enter an invite code.");
+    return;
+  }
+
+  try {
+    const response = await fetch(apiPath(`api/join-invite/${encodeURIComponent(inviteCode.toUpperCase())}`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload?.state || !payload?.session_id) {
+      showMessage(payload?.message || payload?.error || "Unable to join this invite.");
+      return;
+    }
+
+    appState.payload = payload;
+    appState.sessionId = payload.session_id;
+    appState.localState = null;
+    appState.localContext = null;
+    appState.currentMode = "human_vs_human";
+    appState.myPlayer = payload.assigned_player || null;
+    appState.inviteCode = payload.invite_code || inviteCode.toUpperCase();
+    appState.selectedCells = [];
+    resetView();
+    render();
+    renderInviteCodeDisplay();
+    showMessage(`Joined invite ${appState.inviteCode || "match"}. You are ${appState.myPlayer ? appState.myPlayer.toUpperCase() : "assigned"}.`);
+  } catch (_error) {
+    showMessage("Unable to join this invite.");
+  }
 }
 
 async function startSpectatorGame() {
@@ -140,6 +258,8 @@ async function startSpectatorGame() {
     appState.localState = null;
     appState.localContext = null;
     appState.currentMode = "spectator";
+    appState.myPlayer = null;
+    appState.inviteCode = null;
     appState.selectedCells = [];
     resetView();
     render();
@@ -173,7 +293,12 @@ async function submitMove() {
   const response = await fetch(apiPath(`api/play/${appState.sessionId}`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cells: appState.selectedCells }),
+    body: JSON.stringify({
+      cells: appState.selectedCells,
+      ...(appState.currentMode === "human_vs_human" && appState.myPlayer
+        ? { player: appState.myPlayer }
+        : {}),
+    }),
   });
   const nextPayload = await response.json();
   if (!response.ok) {
@@ -467,6 +592,7 @@ function render() {
   renderModeCards();
   renderContextCopy();
   renderStatus();
+  renderInviteCodeDisplay();
   renderSelection();
   renderZoom();
   renderBoard();
@@ -482,7 +608,7 @@ function renderModeCards() {
 function renderContextCopy() {
   if (!appState.payload) {
     boardTitleNode.textContent = GAME.boardTitle;
-    boardSubtitleNode.textContent = "Start a local AI match, a friend match, or an engine spectator session.";
+    boardSubtitleNode.textContent = "Start a hosted champion match, a browser AI match, a friend match, or an engine spectator session.";
     boardHelperNode.textContent = "Tap empty cells to queue a turn. Drag to pan. Use the wheel or zoom controls to adjust the board.";
     turnHelperNode.textContent = "Choose a mode, then select cells on the board to build a turn.";
     return;
@@ -490,8 +616,15 @@ function renderContextCopy() {
 
   const mode = appState.payload.mode;
   if (mode === "local_ai") {
-    boardTitleNode.textContent = "Play vs AI";
+    boardTitleNode.textContent = "Play vs Browser AI";
     boardSubtitleNode.textContent = "The lightweight AI runs on the visitor device instead of a hosted engine lane.";
+  } else if (mode === "human_vs_human") {
+    const inviteLabel = appState.myPlayer ? `You are ${appState.myPlayer.toUpperCase()}. ` : "";
+    boardTitleNode.textContent = "Play with a Friend";
+    boardSubtitleNode.textContent = `${inviteLabel}Share the invite code with your friend to play live.`;
+  } else if (mode === "human_vs_bot") {
+    boardTitleNode.textContent = "Play vs Champion";
+    boardSubtitleNode.textContent = `Hosted champion: ${GAME.botLabel}.`;
   } else if (mode === "local_friend") {
     boardTitleNode.textContent = "Play vs Friend";
     boardSubtitleNode.textContent = "Hot-seat play on one device with the full Hex6 turn rules intact.";
@@ -504,8 +637,12 @@ function renderContextCopy() {
     boardHelperNode.textContent = "The game is finished. You can still inspect the board or start a new mode.";
   } else if (isHumanInteractionTurn()) {
     boardHelperNode.textContent = "Tap empty cells to queue the current turn. Winning lines stop the turn immediately.";
+  } else if (mode === "human_vs_human") {
+    boardHelperNode.textContent = "Invite match in progress. You can only move on your own turn.";
   } else if (mode === "local_ai") {
     boardHelperNode.textContent = "The browser AI is calculating locally. You can still pan and zoom the board.";
+  } else if (mode === "human_vs_bot") {
+    boardHelperNode.textContent = "The hosted champion will answer after your turn. Session continuity depends on the live server instance.";
   } else if (mode === "spectator") {
     boardHelperNode.textContent = "Autoplay advances the engine match. Pause it if you want to inspect a position.";
   } else {
@@ -556,6 +693,15 @@ function renderStatus() {
   clearButton.disabled = appState.selectedCells.length === 0;
   stepBotButton.disabled = appState.payload.mode !== "spectator" || appState.payload.state.is_terminal;
   autoplayButton.disabled = appState.payload.mode !== "spectator" || appState.payload.state.is_terminal;
+}
+
+function renderInviteCodeDisplay() {
+  if (!inviteCodeDisplay) {
+    return;
+  }
+  inviteCodeDisplay.textContent = appState.inviteCode
+    ? `Active invite code: ${appState.inviteCode}`
+    : "No invite active.";
 }
 
 function renderSelection() {
@@ -772,6 +918,9 @@ function isHumanInteractionTurn() {
   if (appState.payload.mode === "local_friend") {
     return true;
   }
+  if (appState.payload.mode === "human_vs_human") {
+    return appState.payload.state.to_play === appState.myPlayer;
+  }
   if (appState.payload.mode === "local_ai") {
     return appState.payload.state.to_play === appState.payload.human_player;
   }
@@ -780,10 +929,16 @@ function isHumanInteractionTurn() {
 
 function modeDisplayName(mode) {
   if (mode === "local_ai") {
-    return "Play vs AI";
+    return "Play vs Browser AI";
+  }
+  if (mode === "human_vs_bot") {
+    return "Play vs Champion";
   }
   if (mode === "local_friend") {
     return "Play vs Friend";
+  }
+  if (mode === "human_vs_human") {
+    return "Invite Match";
   }
   if (mode === "spectator") {
     return "Watch Engine Match";

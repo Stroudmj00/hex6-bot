@@ -13,12 +13,21 @@ def _resolve_web_config() -> str:
     return os.getenv("HEX6_WEB_CONFIG", "configs/play.toml")
 
 
+def _resolve_bundled_production_checkpoint(root: Path) -> str | None:
+    bundled = _resolve_repo_relative_path(root, "models/production/hex6_champion.pt")
+    return None if bundled is None else str(bundled)
+
+
 def _resolve_checkpoint_from_env_or_artifacts(root: Path) -> str | None:
     explicit = os.getenv("HEX6_WEB_CHECKPOINT", "").strip()
     if explicit:
         resolved = _resolve_repo_relative_path(root, explicit)
         if resolved is not None:
             return str(resolved)
+
+    bundled = _resolve_bundled_production_checkpoint(root)
+    if bundled is not None:
+        return bundled
 
     cycle_summaries = _safe_sorted_by_mtime(root.glob("artifacts/**/cycle_summary.json"))
     for summary_path in cycle_summaries:
