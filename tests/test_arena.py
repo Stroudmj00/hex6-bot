@@ -171,6 +171,43 @@ def test_play_game_rejects_turn_with_too_few_cells() -> None:
         play_game({"x": agent, "o": agent}, config=config, starting_state=state)
 
 
+def test_play_game_uses_agent_play_config_override() -> None:
+    config = load_config_with_overrides(
+        "configs/fast.toml",
+        {
+            "game": {
+                "board_width": 1,
+                "board_height": 1,
+            },
+            "evaluation": {
+                "max_game_plies": 0,
+            },
+        },
+    )
+    override = replace(
+        config,
+        search=replace(config.search, root_simulations=777),
+    )
+    observed: list[int] = []
+
+    def choose_opening(_state, agent_config):
+        observed.append(agent_config.search.root_simulations)
+        return type("Turn", (), {"cells": ((0, 0),)})()
+
+    winner, plies, termination, _final_state = play_game(
+        {
+            "x": AgentSpec(name="x", kind="scripted", choose_turn=choose_opening, play_config=override),
+            "o": AgentSpec(name="o", kind="scripted", choose_turn=choose_opening),
+        },
+        config=config,
+    )
+
+    assert observed == [777]
+    assert winner is None
+    assert plies == 1
+    assert termination == "board_exhausted"
+
+
 def test_play_game_rejects_turn_with_too_many_cells() -> None:
     config = load_config("configs/fast.toml")
     state = GameState.initial(config.game).apply_placement((0, 0), config.game)

@@ -103,6 +103,12 @@ class SearchConfig:
     dirichlet_epsilon: float
     root_policy_mode: str = "visit_count"
     root_gumbel_scale: float = 1.0
+    tactical_priority_turn_cap: int = 24
+    tactical_pre_immediate_turn_cap: int = 64
+    tactical_pressure_cell_cap: int = 24
+    tactical_forcing_turn_cap: int = 24
+    tactical_candidate_pool_cap: int = 24
+    tactical_cluster_cell_cap: int = 6
 
 
 @dataclass(frozen=True)
@@ -122,6 +128,8 @@ class TrainingConfig:
     policy_target: str
     bootstrap_opening_suite: str
     bootstrap_seeded_start_fraction: float
+    archive_start_fraction: float
+    archive_start_priority: str
     self_play_temperature: float
     self_play_temperature_drop_ply: int
     self_play_temperature_after_drop: float
@@ -191,6 +199,31 @@ class EvaluationConfig:
     model_value_weight: float
     model_heuristic_weight: float
     record_game_history: bool
+    human_exploit_probe_suite: str = ""
+    human_exploit_probe_strengths: tuple[str, ...] = ()
+    human_exploit_probe_max_successes: int = 0
+    promotion_require_human_exploit_probe_pass: bool = False
+
+
+@dataclass(frozen=True)
+class LadderConfig:
+    submissions_manifest_path: str = "artifacts/colab_ladder/submissions.toml"
+    output_root: str = "artifacts/colab_ladder"
+    state_path: str = "artifacts/colab_ladder/state.json"
+    ledger_path: str = "artifacts/colab_ladder/strength_ledger.jsonl"
+    max_submissions_per_rung: int = 8
+    gate_games: int = 10
+    gate_required_points: float = 9.0
+    gate_balanced_sides: bool = True
+    gate_empty_board_only: bool = True
+    confirmation_games: int = 10
+    confirmation_required_points: float = 9.0
+    adaptive_enabled: bool = True
+    adaptive_trigger_points: float = 8.0
+    adaptive_games: int = 10
+    adaptive_required_points: float = 9.0
+    adaptive_root_simulation_bonus: int = 32
+    adaptive_parallel_expansion_bonus: int = 0
 
 
 @dataclass(frozen=True)
@@ -206,6 +239,7 @@ class AppConfig:
     heuristic: HeuristicConfig
     integration: IntegrationConfig
     evaluation: EvaluationConfig
+    ladder: LadderConfig
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "AppConfig":
@@ -218,6 +252,8 @@ class AppConfig:
             training=TrainingConfig(
                 **{
                     **data["training"],
+                    "archive_start_fraction": data["training"].get("archive_start_fraction", 0.0),
+                    "archive_start_priority": data["training"].get("archive_start_priority", "recent"),
                     "reanalyse_priority": data["training"].get("reanalyse_priority", "recent"),
                 }
             ),
@@ -232,7 +268,24 @@ class AppConfig:
                 include_candidate_edge=data["heuristic"]["include_candidate_edge"],
             ),
             integration=IntegrationConfig(**data["integration"]),
-            evaluation=EvaluationConfig(**data["evaluation"]),
+            evaluation=EvaluationConfig(
+                **{
+                    **data["evaluation"],
+                    "human_exploit_probe_suite": data["evaluation"].get("human_exploit_probe_suite", ""),
+                    "human_exploit_probe_strengths": tuple(
+                        data["evaluation"].get("human_exploit_probe_strengths", [])
+                    ),
+                    "human_exploit_probe_max_successes": data["evaluation"].get(
+                        "human_exploit_probe_max_successes",
+                        0,
+                    ),
+                    "promotion_require_human_exploit_probe_pass": data["evaluation"].get(
+                        "promotion_require_human_exploit_probe_pass",
+                        False,
+                    ),
+                }
+            ),
+            ladder=LadderConfig(**data.get("ladder", {})),
         )
 
 

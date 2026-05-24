@@ -25,6 +25,7 @@ class AgentSpec:
     name: str
     kind: str
     choose_turn: Callable[[GameState, AppConfig], object]
+    play_config: AppConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -119,12 +120,13 @@ def evaluate_checkpoint_against_opponent(
     return summary
 
 
-def build_baseline_agent() -> AgentSpec:
+def build_baseline_agent(*, play_config: AppConfig | None = None) -> AgentSpec:
     search = BaselineTurnSearch()
     return AgentSpec(
         name="baseline",
         kind="heuristic",
         choose_turn=search.choose_turn,
+        play_config=play_config,
     )
 
 
@@ -133,6 +135,7 @@ def build_random_agent(
     seed: int = 0,
     candidate_width: int = 24,
     name: str = "random",
+    play_config: AppConfig | None = None,
 ) -> AgentSpec:
     rng = random.Random(seed)
     width = max(1, candidate_width)
@@ -156,6 +159,7 @@ def build_random_agent(
         name=name,
         kind="random",
         choose_turn=choose_turn,
+        play_config=play_config,
     )
 
 
@@ -170,6 +174,7 @@ def build_checkpoint_agent(checkpoint_path: str | Path, config: AppConfig) -> Ag
         name=Path(checkpoint_path).stem,
         kind=kind,
         choose_turn=search.choose_turn,
+        play_config=config,
     )
 
 
@@ -307,7 +312,8 @@ def play_game(
         return state.winner, state.ply_count, state.draw_reason or "terminal_start", state
     while not state.is_terminal and (ply_cap is None or state.ply_count < ply_cap):
         agent = agents_by_player[state.to_play]
-        turn = agent.choose_turn(state, config)
+        play_config = agent.play_config if agent.play_config is not None else config
+        turn = agent.choose_turn(state, play_config)
         state = state.apply_turn(turn.cells, config.game)
     if state.is_terminal:
         return state.winner, state.ply_count, state.draw_reason or "win", state
