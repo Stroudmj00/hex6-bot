@@ -1,0 +1,59 @@
+[[ideas]]
+idea_id = "IDEA-001"
+title = "Calibrate adaptive ladder extra compute"
+priority = 100
+summary = "Study whether the current 8.0-to-9.0 adaptive retry rule in the ladder should use richer signals such as draw concentration, side imbalance risk, or tactical uncertainty."
+deliverable = "A repo-grounded note that recommends keep/change/remove for the adaptive compute rule and names the exact code and test updates needed."
+source_refs = [
+  "src/hex6/eval/ladder.py",
+  "tests/test_ladder.py",
+  "docs/literature-roadmap.md",
+]
+
+[[ideas]]
+idea_id = "IDEA-002"
+title = "Reduce empty-board draw saturation"
+priority = 90
+summary = "Review opening, side-balance, and evaluation protocol ideas that could reduce draw-heavy comparisons without breaking the strict ladder gate."
+deliverable = "A proposal with at least one small local validation step and one optional Colab follow-up request."
+source_refs = [
+  "src/hex6/eval/arena.py",
+  "src/hex6/eval/tournament.py",
+  "docs/literature-improvements.md",
+]
+
+[[ideas]]
+idea_id = "IDEA-003"
+title = "Batched MCTS and inference queue roadmap"
+priority = 80
+summary = "Translate the repo's performance notes into a concrete implementation order for shared inference queues or more aggressive batched MCTS without destabilizing the current search lane."
+deliverable = "A ranked implementation plan with code touch points, expected wins, and measurement strategy."
+source_refs = [
+  "src/hex6/search/guided_mcts.py",
+  "src/hex6/nn",
+  "docs/performance-roadmap.md",
+]
+
+[[ideas]]
+idea_id = "IDEA-004"
+title = "Tactical finetune transfer into ladder candidates"
+priority = 70
+summary = "Assess whether tactical-suite or pre-immediate finetune outputs should feed the ladder as first-class challenger submissions and what evidence is required before they do."
+deliverable = "A short policy note plus a suggested job request shape for Colab."
+source_refs = [
+  "src/hex6/train/tactical_finetune.py",
+  "src/hex6/eval/tactical_suite.py",
+  "artifacts/colab_ladder/submissions.toml",
+]
+
+[[ideas]]
+idea_id = "IDEA-005"
+title = "Manifest-driven sub-agent merge protocol"
+priority = 60
+summary = "Define a cleaner contract for how eight sub-agents should submit engine code, config overrides, checkpoints, and notes into the ladder manifest with minimal manual cleanup."
+deliverable = "A manifest contract proposal, including required fields and validation rules."
+source_refs = [
+  "src/hex6/eval/ladder.py",
+  "configs/colab_ladder.toml",
+  "artifacts/colab_ladder/submissions.toml",
+]
