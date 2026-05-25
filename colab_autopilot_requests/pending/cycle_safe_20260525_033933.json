@@ -1,0 +1,21 @@
+{
+  "request_id": "cycle-safe-20260525-033933",
+  "kind": "cycle",
+  "priority": 92,
+  "created_at": "2026-05-25T08:39:33Z",
+  "notes": "Safe T4 strongest-v2 cycle after prior /content runtime reset lost one-hour artifacts.",
+  "return_policy": "auto",
+  "options": {
+    "config": "configs/colab_strongest_v2_safe.toml",
+    "output_root": "artifacts/bootstrap_colab_strongest_v2_safe",
+    "minutes": 25.0,
+    "start_checkpoint": "models/production/hex6_champion.pt"
+  },
+  "claimed_at": "",
+  "claimed_by": "",
+  "completed_at": "",
+  "run_id": "",
+  "status": "pending",
+  "exit_code": null,
+  "error": ""
+}
