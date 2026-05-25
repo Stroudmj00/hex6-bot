@@ -163,6 +163,38 @@ class GitHubBranchTransport(StatusTransport):
         encoded = contents["content"].replace("\n", "")
         return base64.b64decode(encoded)
 
+    def list_directory(self, path: str) -> list[dict[str, object]]:
+        path = _normalize_repo_path(path)
+        try:
+            contents = self._api_json(
+                f"https://api.github.com/repos/{self._repo}/contents/{path}?ref={self._branch}",
+                method="GET",
+            )
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return []
+            raise
+        if not isinstance(contents, list):
+            return []
+        return [dict(item) for item in contents if isinstance(item, dict)]
+
+    def delete_file(self, path: str, message: str) -> bool:
+        self._ensure_branch_exists()
+        path = _normalize_repo_path(path)
+        existing = self._get_contents(path)
+        if existing is None or "sha" not in existing:
+            return False
+        self._api_json(
+            f"https://api.github.com/repos/{self._repo}/contents/{path}",
+            method="DELETE",
+            payload={
+                "message": message,
+                "sha": existing["sha"],
+                "branch": self._branch,
+            },
+        )
+        return True
+
     def _ensure_branch_exists(self) -> None:
         if self._branch_checked:
             return

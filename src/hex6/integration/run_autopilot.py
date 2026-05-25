@@ -12,6 +12,7 @@ from hex6.integration.autopilot import (
     complete_research_idea,
     export_result_bundle,
     fetch_result_bundle,
+    fetch_remote_requests,
     generate_request_id,
     get_job_request,
     import_result_bundle,
@@ -20,6 +21,7 @@ from hex6.integration.autopilot import (
     load_autopilot_config,
     load_research_backlog,
     peek_next_job_request,
+    publish_pending_requests,
     promote_champion_from_ladder,
     read_research_state,
     run_worker_loop,
@@ -91,6 +93,12 @@ def build_parser() -> argparse.ArgumentParser:
     preflight.add_argument("--request-id", default=None)
     preflight.add_argument("--no-write-probe", action="store_true")
     preflight.set_defaults(handler=handle_preflight)
+
+    publish_requests = subparsers.add_parser("publish-requests", help="Publish local pending requests to the configured remote queue.")
+    publish_requests.set_defaults(handler=handle_publish_requests)
+
+    fetch_requests = subparsers.add_parser("fetch-requests", help="Fetch remote pending requests into the local queue.")
+    fetch_requests.set_defaults(handler=handle_fetch_requests)
 
     worker = subparsers.add_parser("worker", help="Run the Colab worker loop against pending requests.")
     worker.add_argument("--repo-root", default=".")
@@ -240,6 +248,16 @@ def handle_preflight(args: argparse.Namespace, config) -> None:
     print(json.dumps({"stage": "preflight", **report}, indent=2))
     if not report["ok"]:
         raise SystemExit(STORAGE_PREFLIGHT_EXIT_CODE)
+
+
+def handle_publish_requests(args: argparse.Namespace, config) -> None:
+    del args
+    print(json.dumps(publish_pending_requests(config), indent=2))
+
+
+def handle_fetch_requests(args: argparse.Namespace, config) -> None:
+    del args
+    print(json.dumps(fetch_remote_requests(config), indent=2))
 
 
 def handle_worker(args: argparse.Namespace, config) -> None:

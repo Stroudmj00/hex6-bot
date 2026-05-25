@@ -56,14 +56,15 @@ Start the Codex goal with:
 ```
 
 3. If there is no useful pending request, submit the highest-value cycle or ladder request from the local judge.
-4. For meaningful training, mount Drive and run from `/content/drive/MyDrive/Hex6-Colab/hex6-bot` before submitting or claiming work. If Colab Drive mount fails, use the rclone fallback and throttle syncs instead of relying on ephemeral `/content`.
-5. Run the autopilot storage preflight before any long worker claim. If the request writes under `/content/drive`, a failed preflight means Drive is not mounted durably and the worker must not start expensive training.
-6. Configure `HEX6_GITHUB_TOKEN` in Colab Secrets when Drive is unreliable. The token resolver checks Colab Secrets, then environment variables, then `gh auth token`; the worker uploads each result bundle to the `colab-autopilot-artifacts` branch after it writes the local export zip.
-7. In Colab, switch to a T4 runtime before claiming T4-gated work, then verify with `nvidia-smi`.
-8. Run exactly one worker claim with `scripts/colab_run.py autopilot-worker --once`.
-9. While Colab runs, claim or complete one research idea locally instead of running long local training.
-10. When Colab returns a result under `artifacts/colab_autopilot/results/`, run `judge-result` before launching more compute.
-11. If a checkpoint is found, do not call it stronger until a promotion or ladder gate proves it against the current champion.
+4. Publish pending local requests to the shared queue branch with `publish-requests` so Colab can fetch them from a fresh clone.
+5. For meaningful training, mount Drive and run from `/content/drive/MyDrive/Hex6-Colab/hex6-bot` before submitting or claiming work. If Colab Drive mount fails, use the GitHub artifact/request branch fallback instead of relying on ephemeral `/content`.
+6. Run the autopilot storage preflight before any long worker claim. If the request writes under `/content/drive`, a failed preflight means Drive is not mounted durably and the worker must not start expensive training.
+7. Configure `HEX6_GITHUB_TOKEN` in Colab Secrets when Drive is unreliable. The token resolver checks Colab Secrets, then environment variables, then `gh auth token`; the worker fetches shared requests and uploads result bundles to the `colab-autopilot-artifacts` branch.
+8. In Colab, switch to a T4 runtime before claiming T4-gated work, then verify with `nvidia-smi`.
+9. Run exactly one worker claim with `scripts/colab_run.py autopilot-worker --once`.
+10. While Colab runs, claim or complete one research idea locally instead of running long local training.
+11. When Colab returns a result under `artifacts/colab_autopilot/results/`, run `judge-result` before launching more compute.
+12. If a checkpoint is found, do not call it stronger until a promotion or ladder gate proves it against the current champion.
 
 ## Files
 
@@ -130,6 +131,12 @@ Fetch and import a Colab result bundle back into the local judge state:
 .venv\Scripts\python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml fetch-result --request-id <request-id> --import-bundle --repo-root .
 ```
 
+Publish local pending requests to the shared request queue:
+
+```powershell
+.venv\Scripts\python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml publish-requests
+```
+
 Dry-run a production champion promotion after a ladder request returns:
 
 ```powershell
@@ -153,6 +160,8 @@ For anything longer than a tiny debug run, prefer a Drive-backed working copy or
 If Drive mount fails and you must use `/content`, keep runs short and preserve evidence as a single export bundle. Completed autopilot worker jobs create `artifacts/colab_autopilot/exports/<request-id>.zip` with the result JSON, request JSON, summaries, checkpoint, nearby metrics, and worker log when available. Download or sync that zip before disconnecting.
 
 For unattended no-Drive fallback, set `HEX6_GITHUB_TOKEN` in Colab Secrets before running the worker and enable notebook access for that secret. The broker reads Colab Secrets directly, so you do not need to export the token into the environment. `configs/colab_autopilot.toml` is configured to publish bundles to the separate `colab-autopilot-artifacts` branch. These zips are transport evidence, not source artifacts, and should not be merged into `main`.
+
+The same branch also carries queue state under `colab_autopilot_requests/`. Local operators publish pending requests with `publish-requests`; Colab workers fetch those pending requests before each claim and publish request status transitions back to the branch.
 
 Do not let a Colab claim run unbounded. The broker supports `default_job_timeout_minutes` in `configs/colab_autopilot.toml`, per-request `--timeout-minutes`, and worker-level `--job-timeout-minutes`. A timeout marks the request failed with exit code `124`, writes a result payload, and still attempts to create the export bundle.
 
@@ -381,6 +390,7 @@ Primary commands:
 - Submit requests: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml submit ...
 - List state: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml list
 - Preflight next request: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml preflight --repo-root <repo-root>
+- Publish pending requests: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml publish-requests
 - Fetch result bundle: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml fetch-result --request-id <request-id> --import-bundle --repo-root <repo-root>
 - Claim research: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml next-research --researcher-id codex-research-01
 - Colab worker: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml worker --repo-root <repo-root> --worker-id <worker-id> --once

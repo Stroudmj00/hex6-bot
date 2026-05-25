@@ -12,10 +12,13 @@ from hex6.integration.autopilot import (
     complete_job_request,
     complete_research_idea,
     export_result_bundle,
+    fetch_remote_requests,
     import_result_bundle,
     judge_request_result,
     list_job_requests,
     load_autopilot_config,
+    publish_pending_requests,
+    publish_request_status,
     publish_result_bundle,
     promote_champion_from_ladder,
     read_research_state,
@@ -367,6 +370,81 @@ def test_publish_result_bundle_skips_github_upload_without_token(tmp_path: Path,
     assert result["stage"] == "artifact_upload_skipped"
     assert result["backend"] == "github_branch"
     assert result["reason"] == "github_token_missing"
+
+
+def test_publish_and_fetch_remote_requests_via_github_branch(tmp_path: Path, monkeypatch) -> None:
+    plan_path = _write_plan(tmp_path)
+    config = replace(
+        load_autopilot_config(plan_path),
+        request_sync_backend="github_branch",
+        request_github_dir="remote_requests",
+    )
+    writes: dict[str, dict[str, object]] = {}
+    deletes: list[str] = []
+
+    class FakeTransport:
+        def __init__(self, **kwargs):
+            del kwargs
+
+        def write_json(self, path, payload, message):
+            del message
+            writes[path] = dict(payload)
+
+        def read_json(self, path):
+            return dict(writes[path]) if path in writes else None
+
+        def list_directory(self, path):
+            prefix = f"{path}/"
+            return [
+                {"type": "file", "name": key.removeprefix(prefix), "path": key}
+                for key in sorted(writes)
+                if key.startswith(prefix)
+            ]
+
+        def delete_file(self, path, message):
+            del message
+            if path not in writes:
+                return False
+            deletes.append(path)
+            del writes[path]
+            return True
+
+    monkeypatch.setattr("hex6.integration.autopilot.resolve_github_token", lambda require: "token")
+    monkeypatch.setattr("hex6.integration.autopilot.GitHubBranchTransport", FakeTransport)
+    submit_job_request(
+        config,
+        request_id="cycle_remote",
+        kind="cycle",
+        priority=90,
+        options={"config": "configs/colab_t4_debug.toml", "output_root": "artifacts/debug"},
+    )
+
+    published = publish_pending_requests(config)
+
+    assert published["count"] == 1
+    assert "remote_requests/pending/cycle_remote.json" in writes
+
+    imported_root = tmp_path / "imported"
+    imported_root.mkdir()
+    imported_plan = _write_plan(imported_root)
+    imported_config = replace(
+        load_autopilot_config(imported_plan),
+        request_sync_backend="github_branch",
+        request_github_dir="remote_requests",
+    )
+
+    fetched = fetch_remote_requests(imported_config)
+
+    assert fetched["imported"] == ["cycle_remote"]
+    assert (Path(imported_config.request_dir) / "pending" / "cycle_remote.json").exists()
+
+    request = claim_next_job_request(imported_config, worker_id="worker-01", run_id="run-01")
+    assert request is not None
+    status = publish_request_status(imported_config, "cycle_remote", "running")
+
+    assert status["remote_path"] == "remote_requests/running/cycle_remote.json"
+    assert "remote_requests/running/cycle_remote.json" in writes
+    assert "remote_requests/pending/cycle_remote.json" in deletes
 
 
 def test_worker_marks_timed_out_job_failed_and_exports_bundle(tmp_path: Path, monkeypatch) -> None:

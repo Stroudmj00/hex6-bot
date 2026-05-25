@@ -37,6 +37,8 @@ class AutopilotConfig:
     artifact_github_branch: str
     artifact_github_base_branch: str
     artifact_github_dir: str
+    request_sync_backend: str
+    request_github_dir: str
     research_backlog_path: str
     research_state_path: str
     research_note_dir: str
@@ -92,6 +94,8 @@ def load_autopilot_config(path: str | Path) -> AutopilotConfig:
         artifact_github_branch=str(table.get("artifact_github_branch", "colab-artifacts")),
         artifact_github_base_branch=str(table.get("artifact_github_base_branch", "main")),
         artifact_github_dir=str(table.get("artifact_github_dir", "colab_autopilot_exports")),
+        request_sync_backend=str(table.get("request_sync_backend", "none")),
+        request_github_dir=str(table.get("request_github_dir", "colab_autopilot_requests")),
         research_backlog_path=str(
             _resolve_rooted_path(base_root, str(table.get("research_backlog_path", "configs/colab_research_backlog.toml")))
         ),
@@ -437,6 +441,94 @@ def publish_result_bundle(
     }
 
 
+def publish_pending_requests(config: AutopilotConfig) -> dict[str, Any]:
+    ensure_autopilot_layout(config)
+    transport, skip = _request_sync_transport(config)
+    if transport is None:
+        return skip
+    published: list[str] = []
+    for path in sorted(_request_status_dir(config, "pending").glob("*.json")):
+        payload = _read_json(path)
+        request_id = str(payload.get("request_id") or path.stem).strip() or path.stem
+        remote_path = _remote_request_path(config, "pending", request_id)
+        transport.write_json(remote_path, payload, f"hex6 autopilot request {request_id} pending")
+        published.append(remote_path)
+    return {
+        "stage": "request_publish",
+        "backend": "github_branch",
+        "published": published,
+        "count": len(published),
+    }
+
+
+def fetch_remote_requests(config: AutopilotConfig) -> dict[str, Any]:
+    ensure_autopilot_layout(config)
+    transport, skip = _request_sync_transport(config)
+    if transport is None:
+        return skip
+    remote_dir = _remote_request_dir(config, "pending")
+    imported: list[str] = []
+    skipped: list[str] = []
+    for item in transport.list_directory(remote_dir):
+        if str(item.get("type", "")) != "file":
+            continue
+        name = str(item.get("name", ""))
+        if not name.endswith(".json"):
+            continue
+        request_id = name[:-5]
+        if get_job_request(config, request_id) is not None:
+            skipped.append(request_id)
+            continue
+        payload = transport.read_json(f"{remote_dir}/{name}")
+        if payload is None:
+            skipped.append(request_id)
+            continue
+        payload["status"] = "pending"
+        _write_json(_request_status_dir(config, "pending") / name, payload)
+        imported.append(request_id)
+    return {
+        "stage": "request_fetch",
+        "backend": "github_branch",
+        "remote_dir": remote_dir,
+        "imported": imported,
+        "skipped": skipped,
+    }
+
+
+def publish_request_status(config: AutopilotConfig, request_id: str, status: str) -> dict[str, Any]:
+    ensure_autopilot_layout(config)
+    transport, skip = _request_sync_transport(config)
+    if transport is None:
+        return skip
+    request = get_job_request(config, request_id)
+    if request is None:
+        return {
+            "stage": "request_status_publish_skipped",
+            "backend": "github_branch",
+            "request_id": request_id,
+            "reason": "local_request_missing",
+        }
+    payload = asdict(request)
+    payload["status"] = status
+    remote_path = _remote_request_path(config, status, request_id)
+    transport.write_json(remote_path, payload, f"hex6 autopilot request {request_id} {status}")
+    deleted: list[str] = []
+    for prior_status in ("pending", "running", "completed", "failed"):
+        if prior_status == status:
+            continue
+        prior_path = _remote_request_path(config, prior_status, request_id)
+        if transport.delete_file(prior_path, f"hex6 autopilot request {request_id} moved to {status}"):
+            deleted.append(prior_path)
+    return {
+        "stage": "request_status_publish",
+        "backend": "github_branch",
+        "request_id": request_id,
+        "status": status,
+        "remote_path": remote_path,
+        "deleted": deleted,
+    }
+
+
 def fetch_result_bundle(
     config: AutopilotConfig,
     request_id: str,
@@ -740,6 +832,8 @@ def run_worker_loop(
             print("job budget reached; exiting.")
             break
 
+        _emit_request_fetch(config)
+
         if dry_run:
             request = peek_next_job_request(config)
             if request is None:
@@ -788,6 +882,7 @@ def run_worker_loop(
         request = claim_next_job_request(config, worker_id=worker_id, run_id=run_id)
         if request is None:
             continue
+        _emit_request_status(config, request.request_id, "running")
         running_path = _request_status_dir(config, "running") / f"{request.request_id}.json"
         payload = _read_json(running_path)
         payload["run_id"] = run_id
@@ -819,6 +914,7 @@ def run_worker_loop(
                 result_payload=result_payload,
                 error=error,
             )
+            _emit_request_status(config, request.request_id, "failed")
             _emit_result_bundle(config, result_path, repo_root=resolved_repo_root, request_id=request.request_id)
             jobs_completed += 1
             if once:
@@ -884,10 +980,51 @@ def run_worker_loop(
             result_payload=result_payload,
             error=error if error else ("" if exit_code == 0 else f"job exited with code {exit_code}"),
         )
+        _emit_request_status(config, request.request_id, "completed" if exit_code == 0 else "failed")
         _emit_result_bundle(config, result_path, repo_root=resolved_repo_root, request_id=request.request_id)
         jobs_completed += 1
         if once:
             break
+
+
+def _emit_request_fetch(config: AutopilotConfig) -> None:
+    if config.request_sync_backend.strip().lower() in {"", "none"}:
+        return
+    try:
+        result = fetch_remote_requests(config)
+        print(json.dumps(result, indent=2))
+    except Exception as exc:  # pragma: no cover - best effort remote queue path
+        print(
+            json.dumps(
+                {
+                    "stage": "request_fetch_failed",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                indent=2,
+            )
+        )
+
+
+def _emit_request_status(config: AutopilotConfig, request_id: str, status: str) -> None:
+    if config.request_sync_backend.strip().lower() in {"", "none"}:
+        return
+    try:
+        result = publish_request_status(config, request_id, status)
+        print(json.dumps(result, indent=2))
+    except Exception as exc:  # pragma: no cover - best effort remote queue path
+        print(
+            json.dumps(
+                {
+                    "stage": "request_status_publish_failed",
+                    "request_id": request_id,
+                    "status": status,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                indent=2,
+            )
+        )
 
 
 def _emit_result_bundle(
@@ -1367,6 +1504,41 @@ def _archive_name(repo_root: Path, file_path: Path, used_names: set[str]) -> str
 def _artifact_remote_path(config: AutopilotConfig, safe_request_id: str) -> str:
     remote_dir = PurePosixPath(config.artifact_github_dir.strip().strip("/"))
     return (remote_dir / f"{safe_request_id}.zip").as_posix()
+
+
+def _request_sync_transport(config: AutopilotConfig) -> tuple[GitHubBranchTransport | None, dict[str, Any]]:
+    backend = config.request_sync_backend.strip().lower()
+    if backend in {"", "none"}:
+        return None, {
+            "stage": "request_sync_skipped",
+            "backend": "none",
+            "reason": "request_sync_backend_none",
+        }
+    if backend != "github_branch":
+        raise ValueError(f"unsupported request sync backend: {config.request_sync_backend}")
+    token = resolve_github_token(require=False)
+    if not token:
+        return None, {
+            "stage": "request_sync_skipped",
+            "backend": "github_branch",
+            "reason": "github_token_missing",
+        }
+    return GitHubBranchTransport(
+        repo=config.artifact_github_repo,
+        branch=config.artifact_github_branch,
+        base_branch=config.artifact_github_base_branch,
+        token=token,
+    ), {}
+
+
+def _remote_request_dir(config: AutopilotConfig, status: str) -> str:
+    remote_dir = PurePosixPath(config.request_github_dir.strip().strip("/"))
+    return (remote_dir / status).as_posix()
+
+
+def _remote_request_path(config: AutopilotConfig, status: str, request_id: str) -> str:
+    safe_request_id = _safe_identifier(request_id)
+    return f"{_remote_request_dir(config, status)}/{safe_request_id}.json"
 
 
 def _validate_bundle_member(arcname: PurePosixPath) -> None:
