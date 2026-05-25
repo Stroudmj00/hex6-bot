@@ -11,8 +11,10 @@ from hex6.integration.autopilot import (
     claim_next_research_idea,
     complete_research_idea,
     export_result_bundle,
+    fetch_result_bundle,
     generate_request_id,
     get_job_request,
+    import_result_bundle,
     judge_request_result,
     list_job_requests,
     load_autopilot_config,
@@ -22,6 +24,7 @@ from hex6.integration.autopilot import (
     read_research_state,
     run_worker_loop,
     submit_job_request,
+    upload_result_bundle,
     validate_job_storage,
 )
 
@@ -127,6 +130,26 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--include-checkpoint", action=argparse.BooleanOptionalAction, default=True)
     export.add_argument("--include-worker-log", action=argparse.BooleanOptionalAction, default=True)
     export.set_defaults(handler=handle_export_result)
+
+    upload = subparsers.add_parser("upload-result", help="Bundle and upload a returned result to the configured artifact backend.")
+    upload.add_argument("--result", required=True, help="Path to an artifacts/colab_autopilot/results/*.json file.")
+    upload.add_argument("--repo-root", default=".")
+    upload.add_argument("--bundle-output", default=None)
+    upload.set_defaults(handler=handle_upload_result)
+
+    fetch = subparsers.add_parser("fetch-result", help="Fetch a result bundle from the configured artifact backend.")
+    fetch.add_argument("--request-id", required=True)
+    fetch.add_argument("--output", default=None)
+    fetch.add_argument("--import-bundle", action="store_true")
+    fetch.add_argument("--repo-root", default=".")
+    fetch.add_argument("--overwrite", action="store_true")
+    fetch.set_defaults(handler=handle_fetch_result)
+
+    import_parser = subparsers.add_parser("import-bundle", help="Import an autopilot result bundle into this repo.")
+    import_parser.add_argument("--bundle", required=True)
+    import_parser.add_argument("--repo-root", default=".")
+    import_parser.add_argument("--overwrite", action="store_true")
+    import_parser.set_defaults(handler=handle_import_bundle)
 
     promote = subparsers.add_parser(
         "promote-champion",
@@ -290,6 +313,38 @@ def handle_export_result(args: argparse.Namespace, config) -> None:
         include_worker_log=args.include_worker_log,
     )
     print(json.dumps(bundle, indent=2))
+
+
+def handle_upload_result(args: argparse.Namespace, config) -> None:
+    result = upload_result_bundle(
+        config,
+        args.result,
+        repo_root=args.repo_root,
+        bundle_output_path=args.bundle_output,
+    )
+    print(json.dumps(result, indent=2))
+
+
+def handle_fetch_result(args: argparse.Namespace, config) -> None:
+    result = fetch_result_bundle(config, args.request_id, output_path=args.output)
+    if args.import_bundle:
+        result["import"] = import_result_bundle(
+            config,
+            result["bundle_path"],
+            repo_root=args.repo_root,
+            overwrite=args.overwrite,
+        )
+    print(json.dumps(result, indent=2))
+
+
+def handle_import_bundle(args: argparse.Namespace, config) -> None:
+    result = import_result_bundle(
+        config,
+        args.bundle,
+        repo_root=args.repo_root,
+        overwrite=args.overwrite,
+    )
+    print(json.dumps(result, indent=2))
 
 
 def handle_promote_champion(args: argparse.Namespace, config) -> None:

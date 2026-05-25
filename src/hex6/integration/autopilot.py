@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
@@ -15,6 +15,7 @@ from typing import Any, Iterable
 import zipfile
 
 from .run_priority_loop import JobSpec, build_job_command, build_run_id
+from .status import GitHubBranchTransport, resolve_github_token
 
 
 COLAB_DRIVE_PREFIX = "/content/drive"
@@ -31,6 +32,11 @@ class AutopilotConfig:
     default_run_prefix: str
     poll_seconds: float
     default_job_timeout_minutes: float
+    artifact_export_backend: str
+    artifact_github_repo: str
+    artifact_github_branch: str
+    artifact_github_base_branch: str
+    artifact_github_dir: str
     research_backlog_path: str
     research_state_path: str
     research_note_dir: str
@@ -81,6 +87,11 @@ def load_autopilot_config(path: str | Path) -> AutopilotConfig:
         default_run_prefix=str(table.get("default_run_prefix", "autocolab")),
         poll_seconds=max(float(table.get("poll_seconds", 30.0)), 1.0),
         default_job_timeout_minutes=max(float(table.get("default_job_timeout_minutes", 0.0)), 0.0),
+        artifact_export_backend=str(table.get("artifact_export_backend", "none")),
+        artifact_github_repo=str(table.get("artifact_github_repo", "Stroudmj00/hex6-bot")),
+        artifact_github_branch=str(table.get("artifact_github_branch", "colab-artifacts")),
+        artifact_github_base_branch=str(table.get("artifact_github_base_branch", "main")),
+        artifact_github_dir=str(table.get("artifact_github_dir", "colab_autopilot_exports")),
         research_backlog_path=str(
             _resolve_rooted_path(base_root, str(table.get("research_backlog_path", "configs/colab_research_backlog.toml")))
         ),
@@ -360,6 +371,150 @@ def export_result_bundle(
         "bundle_size_bytes": bundle_path.stat().st_size,
         "included_files": included,
         "missing_files": missing_files,
+    }
+
+
+def upload_result_bundle(
+    config: AutopilotConfig,
+    result_path: str | Path,
+    *,
+    repo_root: str | Path,
+    bundle_output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    bundle = export_result_bundle(config, result_path, repo_root=repo_root, output_path=bundle_output_path)
+    return publish_result_bundle(config, bundle["bundle_path"], request_id=str(bundle["request_id"]))
+
+
+def publish_result_bundle(
+    config: AutopilotConfig,
+    bundle_path: str | Path,
+    *,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    backend = config.artifact_export_backend.strip().lower()
+    bundle_file = Path(bundle_path).resolve()
+    safe_request_id = _safe_identifier(request_id or bundle_file.stem)
+    if backend in {"", "none"}:
+        return {
+            "stage": "artifact_upload_skipped",
+            "backend": "none",
+            "request_id": safe_request_id,
+            "bundle_path": str(bundle_file),
+            "reason": "artifact_export_backend_none",
+        }
+    if backend != "github_branch":
+        raise ValueError(f"unsupported artifact export backend: {config.artifact_export_backend}")
+    token = resolve_github_token(require=False)
+    if not token:
+        return {
+            "stage": "artifact_upload_skipped",
+            "backend": "github_branch",
+            "request_id": safe_request_id,
+            "bundle_path": str(bundle_file),
+            "reason": "github_token_missing",
+        }
+    remote_path = _artifact_remote_path(config, safe_request_id)
+    transport = GitHubBranchTransport(
+        repo=config.artifact_github_repo,
+        branch=config.artifact_github_branch,
+        base_branch=config.artifact_github_base_branch,
+        token=token,
+    )
+    transport.write_bytes(
+        remote_path,
+        bundle_file.read_bytes(),
+        f"hex6 autopilot artifact {safe_request_id}",
+    )
+    return {
+        "stage": "artifact_upload",
+        "backend": "github_branch",
+        "request_id": safe_request_id,
+        "bundle_path": str(bundle_file),
+        "bundle_size_bytes": bundle_file.stat().st_size,
+        "remote_repo": config.artifact_github_repo,
+        "remote_branch": config.artifact_github_branch,
+        "remote_path": remote_path,
+    }
+
+
+def fetch_result_bundle(
+    config: AutopilotConfig,
+    request_id: str,
+    *,
+    output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    backend = config.artifact_export_backend.strip().lower()
+    safe_request_id = _safe_identifier(request_id)
+    if backend != "github_branch":
+        raise ValueError("fetch-result requires artifact_export_backend = 'github_branch'")
+    token = resolve_github_token(require=False)
+    if not token:
+        raise RuntimeError("GitHub token not available. Set HEX6_GITHUB_TOKEN or authenticate gh locally.")
+    remote_path = _artifact_remote_path(config, safe_request_id)
+    transport = GitHubBranchTransport(
+        repo=config.artifact_github_repo,
+        branch=config.artifact_github_branch,
+        base_branch=config.artifact_github_base_branch,
+        token=token,
+    )
+    content = transport.read_bytes(remote_path)
+    if content is None:
+        raise FileNotFoundError(f"remote artifact bundle not found: {remote_path}")
+    target = (
+        Path(output_path).resolve()
+        if output_path is not None
+        else Path(config.result_dir).resolve().parent / "imports" / f"{safe_request_id}.zip"
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+    return {
+        "stage": "artifact_fetch",
+        "backend": "github_branch",
+        "request_id": safe_request_id,
+        "bundle_path": str(target),
+        "bundle_size_bytes": target.stat().st_size,
+        "remote_repo": config.artifact_github_repo,
+        "remote_branch": config.artifact_github_branch,
+        "remote_path": remote_path,
+    }
+
+
+def import_result_bundle(
+    config: AutopilotConfig,
+    bundle_path: str | Path,
+    *,
+    repo_root: str | Path,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    ensure_autopilot_layout(config)
+    root = Path(repo_root).resolve()
+    bundle_file = Path(bundle_path).resolve()
+    imported: list[str] = []
+    skipped: list[str] = []
+    with zipfile.ZipFile(bundle_file) as archive:
+        for member in archive.infolist():
+            if member.is_dir():
+                continue
+            arcname = PurePosixPath(member.filename)
+            _validate_bundle_member(arcname)
+            if arcname.name == "bundle_manifest.json" and len(arcname.parts) == 1:
+                skipped.append(arcname.as_posix())
+                continue
+            target = (root / Path(*arcname.parts)).resolve()
+            _validate_import_target(root, target)
+            if target.exists() and not overwrite:
+                skipped.append(arcname.as_posix())
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(member))
+            imported.append(arcname.as_posix())
+    return {
+        "stage": "artifact_import",
+        "bundle_path": str(bundle_file),
+        "repo_root": str(root),
+        "imported_files": imported,
+        "skipped_files": skipped,
+        "overwrite": overwrite,
     }
 
 
@@ -750,6 +905,22 @@ def _emit_result_bundle(
             json.dumps(
                 {
                     "stage": "artifact_bundle_failed",
+                    "request_id": request_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                indent=2,
+            )
+        )
+        return
+    try:
+        upload = publish_result_bundle(config, bundle["bundle_path"], request_id=str(bundle["request_id"]))
+        print(json.dumps(upload, indent=2))
+    except Exception as exc:  # pragma: no cover - best effort remote durability path
+        print(
+            json.dumps(
+                {
+                    "stage": "artifact_upload_failed",
                     "request_id": request_id,
                     "error_type": type(exc).__name__,
                     "error": str(exc),
@@ -1191,6 +1362,26 @@ def _archive_name(repo_root: Path, file_path: Path, used_names: set[str]) -> str
         suffix += 1
     used_names.add(candidate)
     return candidate
+
+
+def _artifact_remote_path(config: AutopilotConfig, safe_request_id: str) -> str:
+    remote_dir = PurePosixPath(config.artifact_github_dir.strip().strip("/"))
+    return (remote_dir / f"{safe_request_id}.zip").as_posix()
+
+
+def _validate_bundle_member(arcname: PurePosixPath) -> None:
+    raw_name = arcname.as_posix()
+    if not raw_name or raw_name.startswith("/") or "\\" in raw_name:
+        raise ValueError(f"unsafe bundle member path: {raw_name}")
+    if any(part in {"", ".", ".."} for part in arcname.parts):
+        raise ValueError(f"unsafe bundle member path: {raw_name}")
+
+
+def _validate_import_target(repo_root: Path, target: Path) -> None:
+    try:
+        target.relative_to(repo_root)
+    except ValueError as exc:
+        raise ValueError(f"bundle member escapes repo root: {target}") from exc
 
 
 def _judge_ladder_result(judgement: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:

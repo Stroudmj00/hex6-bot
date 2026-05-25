@@ -1,3 +1,4 @@
+from dataclasses import replace
 import json
 from pathlib import Path
 import subprocess
@@ -11,9 +12,11 @@ from hex6.integration.autopilot import (
     complete_job_request,
     complete_research_idea,
     export_result_bundle,
+    import_result_bundle,
     judge_request_result,
     list_job_requests,
     load_autopilot_config,
+    publish_result_bundle,
     promote_champion_from_ladder,
     read_research_state,
     run_worker_loop,
@@ -319,6 +322,51 @@ def test_export_result_bundle_includes_result_checkpoint_and_log(tmp_path: Path)
     assert "artifacts/bootstrap_colab_strongest_v2/cycle_001/bootstrap_model.pt" in names
     assert "artifacts/bootstrap_colab_strongest_v2/cycle_001/metrics.json" in names
     assert "artifacts/colab_autopilot/worker.log" in names
+
+
+def test_import_result_bundle_restores_files_and_rejects_unsafe_paths(tmp_path: Path) -> None:
+    plan_path = _write_plan(tmp_path)
+    config = load_autopilot_config(plan_path)
+    bundle_path = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(bundle_path, "w") as archive:
+        archive.writestr("bundle_manifest.json", "{}")
+        archive.writestr("artifacts/results/cycle_candidate.json", "{}")
+        archive.writestr("artifacts/bootstrap_colab/cycle_001/bootstrap_model.pt", "checkpoint")
+
+    result = import_result_bundle(config, bundle_path, repo_root=tmp_path)
+
+    assert "artifacts/results/cycle_candidate.json" in result["imported_files"]
+    assert "bundle_manifest.json" in result["skipped_files"]
+    assert (tmp_path / "artifacts" / "results" / "cycle_candidate.json").exists()
+    assert (tmp_path / "artifacts" / "bootstrap_colab" / "cycle_001" / "bootstrap_model.pt").exists()
+
+    unsafe_bundle = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(unsafe_bundle, "w") as archive:
+        archive.writestr("../escape.txt", "bad")
+
+    try:
+        import_result_bundle(config, unsafe_bundle, repo_root=tmp_path)
+    except ValueError as exc:
+        assert "unsafe bundle member path" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("unsafe bundle member was accepted")
+
+
+def test_publish_result_bundle_skips_github_upload_without_token(tmp_path: Path, monkeypatch) -> None:
+    plan_path = _write_plan(tmp_path)
+    config = replace(
+        load_autopilot_config(plan_path),
+        artifact_export_backend="github_branch",
+    )
+    bundle_path = tmp_path / "cycle_candidate.zip"
+    bundle_path.write_bytes(b"bundle")
+    monkeypatch.setattr("hex6.integration.autopilot.resolve_github_token", lambda require: None)
+
+    result = publish_result_bundle(config, bundle_path, request_id="cycle_candidate")
+
+    assert result["stage"] == "artifact_upload_skipped"
+    assert result["backend"] == "github_branch"
+    assert result["reason"] == "github_token_missing"
 
 
 def test_worker_marks_timed_out_job_failed_and_exports_bundle(tmp_path: Path, monkeypatch) -> None:

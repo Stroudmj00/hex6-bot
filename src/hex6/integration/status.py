@@ -131,12 +131,15 @@ class GitHubBranchTransport(StatusTransport):
         self._branch_checked = False
 
     def write_json(self, path: str, payload: dict[str, object], message: str) -> None:
+        self.write_bytes(path, json.dumps(payload, indent=2).encode("ascii"), message)
+
+    def write_bytes(self, path: str, content: bytes, message: str) -> None:
         self._ensure_branch_exists()
         path = _normalize_repo_path(path)
         existing = self._get_contents(path)
         body = {
             "message": message,
-            "content": base64.b64encode(json.dumps(payload, indent=2).encode("ascii")).decode("ascii"),
+            "content": base64.b64encode(content).decode("ascii"),
             "branch": self._branch,
         }
         if existing is not None and "sha" in existing:
@@ -148,11 +151,17 @@ class GitHubBranchTransport(StatusTransport):
         )
 
     def read_json(self, path: str) -> dict[str, object] | None:
+        content = self.read_bytes(path)
+        if content is None:
+            return None
+        return json.loads(content.decode("ascii"))
+
+    def read_bytes(self, path: str) -> bytes | None:
         contents = self._get_contents(path)
         if contents is None:
             return None
         encoded = contents["content"].replace("\n", "")
-        return json.loads(base64.b64decode(encoded).decode("ascii"))
+        return base64.b64decode(encoded)
 
     def _ensure_branch_exists(self) -> None:
         if self._branch_checked:

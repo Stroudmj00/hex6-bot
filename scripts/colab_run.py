@@ -233,6 +233,15 @@ def cmd_autopilot_preflight(args: argparse.Namespace) -> int:
     return run_command(command, workdir=workdir)
 
 
+def cmd_autopilot_upload_result(args: argparse.Namespace) -> int:
+    workdir = resolve_repo_root(args.repo_root)
+    command = build_common_command(args.python_exe, "hex6.integration.run_autopilot")
+    command.extend(["--plan", args.plan, "upload-result", "--repo-root", str(workdir), "--result", args.result])
+    if args.bundle_output:
+        command.extend(["--bundle-output", args.bundle_output])
+    return run_command(command, workdir=workdir)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run standard Hex6 jobs from Colab.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -324,6 +333,16 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot_preflight.add_argument("--request-id", default=None)
     autopilot_preflight.add_argument("--no-write-probe", action="store_true")
     autopilot_preflight.set_defaults(handler=cmd_autopilot_preflight)
+
+    autopilot_upload = subparsers.add_parser(
+        "autopilot-upload-result",
+        help="Bundle and upload an autopilot result using the configured artifact backend.",
+    )
+    add_shared_run_args(autopilot_upload)
+    autopilot_upload.add_argument("--plan", default="configs/colab_autopilot.toml")
+    autopilot_upload.add_argument("--result", required=True)
+    autopilot_upload.add_argument("--bundle-output", default=None)
+    autopilot_upload.set_defaults(handler=cmd_autopilot_upload_result)
 
     return parser
 
