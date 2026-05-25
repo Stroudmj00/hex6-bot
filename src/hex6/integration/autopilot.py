@@ -475,16 +475,16 @@ def fetch_remote_requests(config: AutopilotConfig) -> dict[str, Any]:
         name = str(item.get("name", ""))
         if not name.endswith(".json"):
             continue
-        request_id = name[:-5]
+        payload = transport.read_json(f"{remote_dir}/{name}")
+        if payload is None:
+            skipped.append(name[:-5])
+            continue
+        request_id = str(payload.get("request_id") or name[:-5]).strip() or name[:-5]
         if get_job_request(config, request_id) is not None:
             skipped.append(request_id)
             continue
-        payload = transport.read_json(f"{remote_dir}/{name}")
-        if payload is None:
-            skipped.append(request_id)
-            continue
         payload["status"] = "pending"
-        _write_json(_request_status_dir(config, "pending") / name, payload)
+        _write_json(_request_status_dir(config, "pending") / f"{request_id}.json", payload)
         imported.append(request_id)
     return {
         "stage": "request_fetch",

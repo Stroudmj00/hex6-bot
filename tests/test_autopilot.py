@@ -413,7 +413,7 @@ def test_publish_and_fetch_remote_requests_via_github_branch(tmp_path: Path, mon
     monkeypatch.setattr("hex6.integration.autopilot.GitHubBranchTransport", FakeTransport)
     submit_job_request(
         config,
-        request_id="cycle_remote",
+        request_id="cycle-remote",
         kind="cycle",
         priority=90,
         options={"config": "configs/colab_t4_debug.toml", "output_root": "artifacts/debug"},
@@ -435,12 +435,12 @@ def test_publish_and_fetch_remote_requests_via_github_branch(tmp_path: Path, mon
 
     fetched = fetch_remote_requests(imported_config)
 
-    assert fetched["imported"] == ["cycle_remote"]
-    assert (Path(imported_config.request_dir) / "pending" / "cycle_remote.json").exists()
+    assert fetched["imported"] == ["cycle-remote"]
+    assert (Path(imported_config.request_dir) / "pending" / "cycle-remote.json").exists()
 
     request = claim_next_job_request(imported_config, worker_id="worker-01", run_id="run-01")
     assert request is not None
-    status = publish_request_status(imported_config, "cycle_remote", "running")
+    status = publish_request_status(imported_config, "cycle-remote", "running")
 
     assert status["remote_path"] == "remote_requests/running/cycle_remote.json"
     assert "remote_requests/running/cycle_remote.json" in writes
