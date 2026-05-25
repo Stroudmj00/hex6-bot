@@ -6,19 +6,23 @@ import argparse
 import json
 
 from hex6.integration.autopilot import (
+    STORAGE_PREFLIGHT_EXIT_CODE,
     build_research_prompt,
     claim_next_research_idea,
     complete_research_idea,
     export_result_bundle,
     generate_request_id,
+    get_job_request,
     judge_request_result,
     list_job_requests,
     load_autopilot_config,
     load_research_backlog,
+    peek_next_job_request,
     promote_champion_from_ladder,
     read_research_state,
     run_worker_loop,
     submit_job_request,
+    validate_job_storage,
 )
 
 
@@ -78,6 +82,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_parser = subparsers.add_parser("list", help="List known Colab job requests and research status.")
     list_parser.set_defaults(handler=handle_list)
+
+    preflight = subparsers.add_parser("preflight", help="Validate the next request can write durable job outputs.")
+    preflight.add_argument("--repo-root", default=".")
+    preflight.add_argument("--request-id", default=None)
+    preflight.add_argument("--no-write-probe", action="store_true")
+    preflight.set_defaults(handler=handle_preflight)
 
     worker = subparsers.add_parser("worker", help="Run the Colab worker loop against pending requests.")
     worker.add_argument("--repo-root", default=".")
@@ -186,6 +196,27 @@ def handle_list(args: argparse.Namespace, config) -> None:
             indent=2,
         )
     )
+
+
+def handle_preflight(args: argparse.Namespace, config) -> None:
+    request = get_job_request(config, args.request_id) if args.request_id else None
+    if request is None and args.request_id:
+        print(json.dumps({"stage": "missing_request", "request_id": args.request_id}, indent=2))
+        raise SystemExit(STORAGE_PREFLIGHT_EXIT_CODE)
+    if request is None:
+        request = peek_next_job_request(config)
+    if request is None:
+        print(json.dumps({"stage": "idle", "message": "no pending requests"}, indent=2))
+        return
+    report = validate_job_storage(
+        config,
+        request,
+        repo_root=args.repo_root,
+        write_probe=not args.no_write_probe,
+    )
+    print(json.dumps({"stage": "preflight", **report}, indent=2))
+    if not report["ok"]:
+        raise SystemExit(STORAGE_PREFLIGHT_EXIT_CODE)
 
 
 def handle_worker(args: argparse.Namespace, config) -> None:

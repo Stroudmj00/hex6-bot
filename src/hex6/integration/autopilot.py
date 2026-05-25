@@ -17,6 +17,10 @@ import zipfile
 from .run_priority_loop import JobSpec, build_job_command, build_run_id
 
 
+COLAB_DRIVE_PREFIX = "/content/drive"
+STORAGE_PREFLIGHT_EXIT_CODE = 78
+
+
 @dataclass(frozen=True)
 class AutopilotConfig:
     name: str
@@ -193,6 +197,43 @@ def claim_next_job_request(config: AutopilotConfig, *, worker_id: str, run_id: s
     workers[worker_id] = {"last_claimed_at": payload["claimed_at"], "last_run_id": run_id}
     write_autopilot_state(config.state_path, state)
     return _job_request_from_payload(payload)
+
+
+def get_job_request(config: AutopilotConfig, request_id: str) -> JobRequest | None:
+    ensure_autopilot_layout(config)
+    for status in ("pending", "running", "completed", "failed"):
+        path = _request_status_dir(config, status) / f"{request_id}.json"
+        if path.exists():
+            payload = _read_json(path)
+            payload["status"] = status
+            return _job_request_from_payload(payload)
+    return None
+
+
+def validate_job_storage(
+    config: AutopilotConfig,
+    request: JobRequest,
+    *,
+    repo_root: str | Path,
+    write_probe: bool = True,
+) -> dict[str, Any]:
+    """Validate that a request's output directory can preserve returned evidence."""
+    ensure_autopilot_layout(config)
+    root = Path(repo_root).resolve()
+    checks = [
+        _check_storage_target(label, raw_path, path, write_probe=write_probe)
+        for label, raw_path, path in _job_output_storage_targets(request, root)
+    ]
+    errors = [str(check["error"]) for check in checks if not check.get("ok")]
+    return {
+        "ok": not errors,
+        "request_id": request.request_id,
+        "kind": request.kind,
+        "repo_root": str(root),
+        "write_probe": write_probe,
+        "checks": checks,
+        "errors": errors,
+    }
 
 
 def complete_job_request(
@@ -567,6 +608,12 @@ def run_worker_loop(
                         "run_id": run_id,
                         "command": command,
                         "timeout_minutes": timeout_minutes,
+                        "storage_preflight": validate_job_storage(
+                            config,
+                            request,
+                            repo_root=resolved_repo_root,
+                            write_probe=False,
+                        ),
                     },
                     indent=2,
                 )
@@ -592,6 +639,37 @@ def run_worker_loop(
         _write_json(running_path, payload)
 
         timeout_minutes = _job_timeout_minutes(config, request, job_timeout_minutes)
+        storage_preflight = validate_job_storage(config, request, repo_root=resolved_repo_root)
+        if not storage_preflight["ok"]:
+            error = _storage_preflight_error(storage_preflight)
+            print(
+                json.dumps(
+                    {
+                        "stage": "storage_preflight_failed",
+                        "request_id": request.request_id,
+                        "run_id": run_id,
+                        "error": error,
+                        "storage_preflight": storage_preflight,
+                    },
+                    indent=2,
+                )
+            )
+            result_payload = build_request_result(config, request, repo_root=resolved_repo_root)
+            result_payload["storage_preflight"] = storage_preflight
+            result_path = complete_job_request(
+                config,
+                request_id=request.request_id,
+                success=False,
+                exit_code=STORAGE_PREFLIGHT_EXIT_CODE,
+                result_payload=result_payload,
+                error=error,
+            )
+            _emit_result_bundle(config, result_path, repo_root=resolved_repo_root, request_id=request.request_id)
+            jobs_completed += 1
+            if once:
+                break
+            continue
+
         command = build_job_command(
             JobSpec(request.request_id, request.kind, request.priority, True, 0.0, dict(request.options)),
             python_exe=python_exe,
@@ -642,6 +720,7 @@ def run_worker_loop(
         if timed_out:
             result_payload["timed_out"] = True
             result_payload["timeout_minutes"] = timeout_minutes
+        result_payload["storage_preflight"] = storage_preflight
         result_path = complete_job_request(
             config,
             request_id=request.request_id,
@@ -650,24 +729,34 @@ def run_worker_loop(
             result_payload=result_payload,
             error=error if error else ("" if exit_code == 0 else f"job exited with code {exit_code}"),
         )
-        try:
-            bundle = export_result_bundle(config, result_path, repo_root=resolved_repo_root)
-            print(json.dumps({"stage": "artifact_bundle", **bundle}, indent=2))
-        except Exception as exc:  # pragma: no cover - best effort durability path
-            print(
-                json.dumps(
-                    {
-                        "stage": "artifact_bundle_failed",
-                        "request_id": request.request_id,
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    },
-                    indent=2,
-                )
-            )
+        _emit_result_bundle(config, result_path, repo_root=resolved_repo_root, request_id=request.request_id)
         jobs_completed += 1
         if once:
             break
+
+
+def _emit_result_bundle(
+    config: AutopilotConfig,
+    result_path: str | Path,
+    *,
+    repo_root: str | Path,
+    request_id: str,
+) -> None:
+    try:
+        bundle = export_result_bundle(config, result_path, repo_root=repo_root)
+        print(json.dumps({"stage": "artifact_bundle", **bundle}, indent=2))
+    except Exception as exc:  # pragma: no cover - best effort durability path
+        print(
+            json.dumps(
+                {
+                    "stage": "artifact_bundle_failed",
+                    "request_id": request_id,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                },
+                indent=2,
+            )
+        )
 
 
 def build_request_result(
@@ -753,6 +842,91 @@ def _job_timeout_minutes(config: AutopilotConfig, request: JobRequest, override:
     if raw_request_timeout is not None:
         return max(float(raw_request_timeout), 0.0)
     return config.default_job_timeout_minutes
+
+
+def _job_output_storage_targets(request: JobRequest, repo_root: Path) -> list[tuple[str, str, Path]]:
+    options = request.options
+    if request.kind == "bootstrap":
+        raw_path = str(options.get("output", "artifacts/bootstrap_colab"))
+        return [("job_output", raw_path, _resolve_runtime_path(repo_root, raw_path))]
+    if request.kind == "cycle":
+        raw_path = str(options.get("output_root", "artifacts/bootstrap_colab_hour"))
+        return [("job_output_root", raw_path, _resolve_runtime_path(repo_root, raw_path))]
+    if request.kind == "ladder":
+        raw_path = str(options.get("output", "artifacts/colab_ladder"))
+        return [("job_output", raw_path, _resolve_runtime_path(repo_root, raw_path))]
+    if request.kind == "search_matrix":
+        raw_path = str(options.get("output", "artifacts/search_matrix_colab"))
+        return [("job_output", raw_path, _resolve_runtime_path(repo_root, raw_path))]
+    if request.kind == "runtime_benchmark":
+        raw_path = str(options.get("output", "artifacts/runtime_parallelism_colab"))
+        return [("job_output", raw_path, _resolve_runtime_path(repo_root, raw_path))]
+    if request.kind == "tournament":
+        raw_path = str(options.get("output", "artifacts/tournament_colab"))
+        return [("job_output", raw_path, _resolve_runtime_path(repo_root, raw_path))]
+    return []
+
+
+def _check_storage_target(label: str, raw_path: str, path: Path, *, write_probe: bool) -> dict[str, Any]:
+    check: dict[str, Any] = {
+        "label": label,
+        "raw_path": raw_path,
+        "resolved_path": str(path),
+        "ok": True,
+    }
+    drive_error = _colab_drive_mount_error(raw_path)
+    if drive_error:
+        check.update({"ok": False, "error": drive_error})
+        return check
+    if not write_probe:
+        check["exists"] = path.exists()
+        return check
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        if not path.is_dir():
+            check.update({"ok": False, "error": f"storage target is not a directory: {path}"})
+            return check
+        probe = path / ".hex6_autopilot_write_probe"
+        probe.write_text("ok\n", encoding="ascii")
+        probe.unlink(missing_ok=True)
+    except OSError as exc:
+        check.update(
+            {
+                "ok": False,
+                "error": f"storage target is not writable: {path} ({type(exc).__name__}: {exc})",
+            }
+        )
+    return check
+
+
+def _colab_drive_mount_error(raw_path: str) -> str:
+    if not _is_colab_drive_path(raw_path):
+        return ""
+    drive_root = Path(COLAB_DRIVE_PREFIX)
+    my_drive = drive_root / "MyDrive"
+    if not drive_root.exists():
+        return f"Colab Drive output requested but {COLAB_DRIVE_PREFIX} is not mounted"
+    if not my_drive.exists():
+        return f"Colab Drive output requested but {my_drive} is missing"
+    try:
+        is_mount = drive_root.is_mount()
+    except (OSError, NotImplementedError):
+        is_mount = False
+    if not is_mount:
+        return f"Colab Drive output requested but {COLAB_DRIVE_PREFIX} is not a mounted filesystem"
+    return ""
+
+
+def _is_colab_drive_path(raw_path: str) -> bool:
+    normalized = raw_path.replace("\\", "/")
+    return normalized == COLAB_DRIVE_PREFIX or normalized.startswith(f"{COLAB_DRIVE_PREFIX}/")
+
+
+def _storage_preflight_error(report: dict[str, Any]) -> str:
+    errors = [str(value) for value in report.get("errors", []) if str(value).strip()]
+    if errors:
+        return "storage preflight failed: " + "; ".join(errors)
+    return "storage preflight failed"
 
 
 def load_research_backlog(config: AutopilotConfig) -> tuple[ResearchIdea, ...]:

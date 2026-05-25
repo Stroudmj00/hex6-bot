@@ -57,11 +57,12 @@ Start the Codex goal with:
 
 3. If there is no useful pending request, submit the highest-value cycle or ladder request from the local judge.
 4. For meaningful training, mount Drive and run from `/content/drive/MyDrive/Hex6-Colab/hex6-bot` before submitting or claiming work. If Colab Drive mount fails, use the rclone fallback and throttle syncs instead of relying on ephemeral `/content`.
-5. In Colab, switch to a T4 runtime before claiming T4-gated work, then verify with `nvidia-smi`.
-6. Run exactly one worker claim with `scripts/colab_run.py autopilot-worker --once`.
-7. While Colab runs, claim or complete one research idea locally instead of running long local training.
-8. When Colab returns a result under `artifacts/colab_autopilot/results/`, run `judge-result` before launching more compute.
-9. If a checkpoint is found, do not call it stronger until a promotion or ladder gate proves it against the current champion.
+5. Run the autopilot storage preflight before any long worker claim. If the request writes under `/content/drive`, a failed preflight means Drive is not mounted durably and the worker must not start expensive training.
+6. In Colab, switch to a T4 runtime before claiming T4-gated work, then verify with `nvidia-smi`.
+7. Run exactly one worker claim with `scripts/colab_run.py autopilot-worker --once`.
+8. While Colab runs, claim or complete one research idea locally instead of running long local training.
+9. When Colab returns a result under `artifacts/colab_autopilot/results/`, run `judge-result` before launching more compute.
+10. If a checkpoint is found, do not call it stronger until a promotion or ladder gate proves it against the current champion.
 
 ## Files
 
@@ -211,6 +212,17 @@ python -m pip install -e .
 python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml list
 ```
 
+Run a storage preflight before claiming a long job:
+
+```bash
+python scripts/colab_run.py autopilot-preflight \
+  --repo-root /content/drive/MyDrive/Hex6-Colab/hex6-bot \
+  --plan configs/colab_autopilot.toml \
+  --minimum-gpu-tier T4
+```
+
+The preflight writes and deletes a probe file in the job output directory. If it reports that `/content/drive` is not mounted, mount Drive or switch to a short debug request before running the worker.
+
 6. Submit a small debug cycle when validating the pipeline or instrumentation:
 
 ```bash
@@ -346,6 +358,7 @@ Read first:
 Primary commands:
 - Submit requests: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml submit ...
 - List state: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml list
+- Preflight next request: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml preflight --repo-root <repo-root>
 - Claim research: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml next-research --researcher-id codex-research-01
 - Colab worker: python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml worker --repo-root <repo-root> --worker-id <worker-id> --once
 

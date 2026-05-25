@@ -222,6 +222,17 @@ def cmd_autopilot_worker(args: argparse.Namespace) -> int:
     return run_command(command, workdir=workdir)
 
 
+def cmd_autopilot_preflight(args: argparse.Namespace) -> int:
+    workdir = resolve_repo_root(args.repo_root)
+    command = build_common_command(args.python_exe, "hex6.integration.run_autopilot")
+    command.extend(["--plan", args.plan, "preflight", "--repo-root", str(workdir)])
+    if args.request_id:
+        command.extend(["--request-id", args.request_id])
+    if args.no_write_probe:
+        command.append("--no-write-probe")
+    return run_command(command, workdir=workdir)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run standard Hex6 jobs from Colab.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -303,6 +314,16 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot_worker.add_argument("--max-jobs", type=int, default=None)
     autopilot_worker.add_argument("--job-timeout-minutes", type=float, default=None)
     autopilot_worker.set_defaults(handler=cmd_autopilot_worker)
+
+    autopilot_preflight = subparsers.add_parser(
+        "autopilot-preflight",
+        help="Validate the next autopilot request can write job outputs.",
+    )
+    add_shared_run_args(autopilot_preflight)
+    autopilot_preflight.add_argument("--plan", default="configs/colab_autopilot.toml")
+    autopilot_preflight.add_argument("--request-id", default=None)
+    autopilot_preflight.add_argument("--no-write-probe", action="store_true")
+    autopilot_preflight.set_defaults(handler=cmd_autopilot_preflight)
 
     return parser
 

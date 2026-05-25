@@ -367,6 +367,48 @@ def test_worker_marks_timed_out_job_failed_and_exports_bundle(tmp_path: Path, mo
     assert (Path(config.result_dir).parent / "exports" / "timeout_cycle.zip").exists()
 
 
+def test_worker_fails_fast_when_colab_drive_output_is_not_mounted(tmp_path: Path, monkeypatch) -> None:
+    plan_path = _write_plan(tmp_path)
+    config = load_autopilot_config(plan_path)
+    submit_job_request(
+        config,
+        request_id="drive_cycle",
+        kind="cycle",
+        priority=95,
+        options={
+            "config": "configs/colab_strongest_v2.toml",
+            "output_root": "/content/drive/MyDrive/hex6_colab_autopilot/runs/drive_cycle",
+            "timeout_minutes": 120,
+        },
+    )
+
+    def fake_run(*args, **kwargs):
+        raise AssertionError("worker should not launch training when Drive output is unavailable")
+
+    monkeypatch.setattr("hex6.integration.autopilot.subprocess.run", fake_run)
+
+    run_worker_loop(
+        config,
+        repo_root=tmp_path,
+        python_exe="python",
+        worker_id="worker-01",
+        once=True,
+    )
+
+    rows = list_job_requests(config)
+    failed = next(row for row in rows if row["request_id"] == "drive_cycle")
+    assert failed["status"] == "failed"
+    assert failed["exit_code"] == 78
+    assert "storage preflight failed" in failed["error"]
+    assert "/content/drive is not mounted" in failed["error"]
+    result_path = Path(config.result_dir) / "drive_cycle.json"
+    result = json.loads(result_path.read_text(encoding="ascii"))
+    preflight = result["result"]["storage_preflight"]
+    assert preflight["ok"] is False
+    assert preflight["checks"][0]["raw_path"].startswith("/content/drive/MyDrive/")
+    assert (Path(config.result_dir).parent / "exports" / "drive_cycle.zip").exists()
+
+
 def test_promote_champion_from_ladder_requires_promoted_submission(tmp_path: Path) -> None:
     summary_path = tmp_path / "ladder_summary.json"
     summary_path.write_text(
