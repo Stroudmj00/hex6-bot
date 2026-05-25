@@ -210,6 +210,26 @@ def test_load_colab_strongest_v2_safe_config() -> None:
     assert config.search.root_gumbel_scale == 1.0
 
 
+def test_load_colab_t4_debug_config() -> None:
+    config = load_config("configs/colab_t4_debug.toml")
+
+    assert config.project.phase == "colab_t4_debug"
+    assert config.runtime.cpu_threads == 2
+    assert config.runtime.interop_threads == 1
+    assert config.search.root_simulations == 16
+    assert config.search.parallel_expansions_per_root == 1
+    assert config.training.self_play_workers == 1
+    assert config.training.data_loader_workers == 0
+    assert config.training.pin_memory is False
+    assert config.training.bootstrap_games == 2
+    assert config.training.max_game_plies == 80
+    assert config.training.batch_size == 4
+    assert config.evaluation.arena_games == 0
+    assert config.evaluation.max_game_plies == 80
+    assert config.model.blocks == 2
+    assert config.integration.status_backend == "github_branch"
+
+
 def test_load_local_4h_strongest_v2_gumbel_config() -> None:
     config = load_config("configs/local_4h_strongest_v2_gumbel.toml")
 
