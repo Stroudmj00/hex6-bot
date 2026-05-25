@@ -1,0 +1,21 @@
+{
+  "request_id": "cycle-20260524-231553",
+  "kind": "cycle",
+  "priority": 90,
+  "created_at": "2026-05-24T23:15:53Z",
+  "notes": "One-hour strongest-v2 cycle seeded from production champion to generate a fresh ladder candidate.",
+  "return_policy": "auto",
+  "options": {
+    "config": "configs/colab_strongest_v2.toml",
+    "output_root": "artifacts/bootstrap_colab_strongest_v2",
+    "minutes": 60.0,
+    "start_checkpoint": "models/production/hex6_champion.pt"
+  },
+  "claimed_at": "",
+  "claimed_by": "",
+  "completed_at": "",
+  "run_id": "",
+  "status": "pending",
+  "exit_code": null,
+  "error": ""
+}
