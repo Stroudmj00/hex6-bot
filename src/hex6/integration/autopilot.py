@@ -6,10 +6,13 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import time
 import tomllib
-from typing import Any
+from typing import Any, Iterable
+import zipfile
 
 from .run_priority_loop import JobSpec, build_job_command, build_run_id
 
@@ -23,6 +26,7 @@ class AutopilotConfig:
     default_status_backend: str
     default_run_prefix: str
     poll_seconds: float
+    default_job_timeout_minutes: float
     research_backlog_path: str
     research_state_path: str
     research_note_dir: str
@@ -72,6 +76,7 @@ def load_autopilot_config(path: str | Path) -> AutopilotConfig:
         default_status_backend=str(table.get("default_status_backend", "github_branch")),
         default_run_prefix=str(table.get("default_run_prefix", "autocolab")),
         poll_seconds=max(float(table.get("poll_seconds", 30.0)), 1.0),
+        default_job_timeout_minutes=max(float(table.get("default_job_timeout_minutes", 0.0)), 0.0),
         research_backlog_path=str(
             _resolve_rooted_path(base_root, str(table.get("research_backlog_path", "configs/colab_research_backlog.toml")))
         ),
@@ -240,6 +245,285 @@ def complete_job_request(
     return result_path
 
 
+def export_result_bundle(
+    config: AutopilotConfig,
+    result_path: str | Path,
+    *,
+    repo_root: str | Path,
+    output_path: str | Path | None = None,
+    include_checkpoint: bool = True,
+    include_worker_log: bool = True,
+) -> dict[str, Any]:
+    """Bundle a completed result and key evidence into a portable zip file."""
+    ensure_autopilot_layout(config)
+    root = Path(repo_root).resolve()
+    result_file = Path(result_path).resolve()
+    document = _read_json(result_file)
+    request = _mapping(document.get("request"))
+    result = _mapping(document.get("result"))
+    request_id = str(request.get("request_id") or result_file.stem).strip() or result_file.stem
+    safe_request_id = _safe_identifier(request_id)
+    bundle_path = (
+        Path(output_path).resolve()
+        if output_path is not None
+        else Path(config.result_dir).resolve().parent / "exports" / f"{safe_request_id}.zip"
+    )
+
+    candidates: list[Path] = [result_file]
+    missing: list[str] = []
+    _append_existing_request_file(config, request_id, candidates)
+    _append_result_path(result, "resolved_summary_path", root, candidates, missing)
+    _append_result_path(result, "summary_path", root, candidates, missing)
+    if include_checkpoint:
+        for key in ("resolved_checkpoint_path", "checkpoint_path", "resolved_best_checkpoint", "best_checkpoint", "resolved_latest_checkpoint", "latest_checkpoint"):
+            _append_result_path(result, key, root, candidates, missing)
+    for key in ("config_path",):
+        _append_result_path(result, key, root, candidates, missing)
+    suggestion = _mapping(result.get("suggested_ladder_submission"))
+    for key in ("config_path",):
+        _append_result_path(suggestion, key, root, candidates, missing)
+    if include_worker_log:
+        worker_log = root / "artifacts" / "colab_autopilot" / "worker.log"
+        if worker_log.exists():
+            candidates.append(worker_log)
+
+    # Cycle summaries point to the cycle directory; include small nearby evidence files.
+    for path in tuple(candidates):
+        if path.name == "cycle_summary.json":
+            _append_cycle_evidence(path, root, candidates)
+
+    existing_files = _dedupe_paths(path for path in candidates if path.exists() and path.is_file())
+    missing_files = sorted(set(missing))
+    bundle_path.parent.mkdir(parents=True, exist_ok=True)
+    included: list[str] = []
+    used_names: set[str] = set()
+    manifest = {
+        "request_id": request_id,
+        "generated_at": utc_text(),
+        "result_path": _repo_relative_or_absolute(root, result_file),
+        "repo_root": str(root),
+        "included_files": [],
+        "missing_files": missing_files,
+    }
+    with zipfile.ZipFile(bundle_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file_path in existing_files:
+            arcname = _archive_name(root, file_path, used_names)
+            archive.write(file_path, arcname)
+            included.append(arcname)
+        manifest["included_files"] = included
+        archive.writestr("bundle_manifest.json", json.dumps(manifest, indent=2))
+
+    return {
+        "request_id": request_id,
+        "bundle_path": str(bundle_path),
+        "bundle_size_bytes": bundle_path.stat().st_size,
+        "included_files": included,
+        "missing_files": missing_files,
+    }
+
+
+def judge_request_result(
+    config: AutopilotConfig,
+    result_path: str | Path,
+    *,
+    manifest_path: str | Path | None = None,
+    submit_ladder: bool = False,
+    ladder_request_id: str | None = None,
+    ladder_config: str = "configs/colab_ladder.toml",
+    ladder_priority: int = 95,
+    ladder_output: str | Path | None = None,
+    max_submissions: int = 1,
+) -> dict[str, Any]:
+    """Classify a returned autopilot result and optionally enqueue a ladder gate."""
+    ensure_autopilot_layout(config)
+    result_file = Path(result_path).resolve()
+    document = _read_json(result_file)
+    request = _mapping(document.get("request"))
+    result = _mapping(document.get("result"))
+    request_id = str(request.get("request_id") or result_file.stem).strip() or result_file.stem
+    kind = str(request.get("kind") or result.get("kind", "")).strip()
+    repo_root = _config_base_root(Path(config.source_path).resolve())
+
+    judgement: dict[str, Any] = {
+        "request_id": request_id,
+        "kind": kind,
+        "result_path": str(result_file),
+        "decision": "archive",
+        "reasons": [],
+    }
+    reasons = judgement["reasons"]
+    if not isinstance(reasons, list):
+        raise TypeError("judgement reasons must be a list")
+
+    exit_code = request.get("exit_code")
+    status = str(request.get("status", "")).strip()
+    if status and status != "completed":
+        reasons.append(f"request_status_{status}")
+    if exit_code not in (None, 0):
+        reasons.append(f"nonzero_exit_code_{exit_code}")
+    if reasons:
+        return judgement
+
+    if kind == "ladder":
+        return _judge_ladder_result(judgement, result)
+
+    if kind not in {"bootstrap", "cycle"}:
+        reasons.append("no_checkpoint_gate_for_kind")
+        return judgement
+
+    checkpoint_value = _result_checkpoint_value(result)
+    if not checkpoint_value:
+        reasons.append("no_returned_checkpoint")
+        return judgement
+
+    checkpoint_path = _resolve_runtime_path(repo_root, checkpoint_value)
+    judgement["checkpoint_path"] = checkpoint_value
+    judgement["resolved_checkpoint_path"] = str(checkpoint_path)
+    judgement["checkpoint_exists"] = checkpoint_path.exists()
+    if not checkpoint_path.exists():
+        judgement["decision"] = "follow_up"
+        reasons.append("checkpoint_path_missing")
+        return judgement
+
+    candidate_config = _result_config_path(result)
+    candidate_config_path = _resolve_runtime_path(repo_root, candidate_config) if candidate_config else None
+    if candidate_config_path is not None and not candidate_config_path.exists():
+        judgement["decision"] = "follow_up"
+        judgement["config_path"] = candidate_config
+        judgement["resolved_config_path"] = str(candidate_config_path)
+        reasons.append("config_path_missing")
+        return judgement
+
+    safe_request_id = _safe_identifier(request_id)
+    manifest_file = (
+        Path(manifest_path).resolve()
+        if manifest_path is not None
+        else Path(config.result_dir).resolve().parent / "ladder_manifests" / f"{safe_request_id}.toml"
+    )
+    _write_ladder_manifest(
+        manifest_file,
+        repo_root=repo_root,
+        request_id=request_id,
+        submission_id=f"autopilot_{safe_request_id}",
+        checkpoint_path=checkpoint_path,
+        candidate_config_path=candidate_config_path,
+    )
+    manifest_for_job = _repo_relative_text(repo_root, manifest_file)
+    judgement["decision"] = "submit_ladder" if submit_ladder else "ladder_manifest"
+    judgement["ladder_manifest_path"] = str(manifest_file)
+    judgement["ladder_manifest"] = manifest_for_job
+    reasons.append("checkpoint_requires_ladder_gate")
+
+    if submit_ladder:
+        ladder_id = ladder_request_id or generate_request_id("ladder")
+        output_value = (
+            str(ladder_output)
+            if ladder_output is not None
+            else f"artifacts/colab_ladder/autopilot/{safe_request_id}"
+        )
+        options = {
+            "config": ladder_config,
+            "manifest": manifest_for_job,
+            "output": output_value,
+            "state": str(Path(output_value) / "state.json"),
+            "ledger": str(Path(output_value) / "strength_ledger.jsonl"),
+            "max_submissions": int(max_submissions),
+            "resume": False,
+        }
+        request_path = submit_job_request(
+            config,
+            request_id=ladder_id,
+            kind="ladder",
+            priority=ladder_priority,
+            notes=f"Ladder gate for autopilot result {request_id}.",
+            options=options,
+        )
+        judgement["ladder_request_id"] = ladder_id
+        judgement["ladder_request_path"] = str(request_path)
+        judgement["ladder_request_options"] = options
+
+    return judgement
+
+
+def promote_champion_from_ladder(
+    summary_path: str | Path,
+    *,
+    production_checkpoint_path: str | Path = "models/production/hex6_champion.pt",
+    metadata_path: str | Path = "models/production/hex6_champion.metadata.json",
+    apply: bool = False,
+) -> dict[str, Any]:
+    """Promote the ladder champion into the production checkpoint slot when evidence proves it."""
+    summary_file = Path(summary_path).resolve()
+    summary = _read_json(summary_file)
+    promoted_ids = [str(value) for value in summary.get("promoted_submission_ids", [])]
+    champion = _mapping(summary.get("champion"))
+    champion_id = str(champion.get("submission_id", "")).strip()
+    decision: dict[str, Any] = {
+        "summary_path": str(summary_file),
+        "decision": "no_promotion",
+        "promoted_submission_ids": promoted_ids,
+        "champion_submission_id": champion_id,
+        "applied": False,
+    }
+    if not promoted_ids:
+        decision["reason"] = "ladder_summary_has_no_promotions"
+        return decision
+    if champion_id not in promoted_ids:
+        decision["reason"] = "current_ladder_champion_was_not_promoted"
+        return decision
+
+    raw_checkpoint = str(champion.get("checkpoint_path", "")).strip()
+    if not raw_checkpoint:
+        decision["decision"] = "invalid"
+        decision["reason"] = "promoted_champion_missing_checkpoint_path"
+        return decision
+    manifest_path = Path(str(summary.get("manifest_path", ""))).resolve()
+    if not str(summary.get("manifest_path", "")).strip():
+        decision["decision"] = "invalid"
+        decision["reason"] = "ladder_summary_missing_manifest_path"
+        return decision
+    checkpoint_path = _resolve_runtime_path(manifest_path.parent, raw_checkpoint)
+    decision["source_checkpoint"] = str(checkpoint_path)
+    decision["checkpoint_exists"] = checkpoint_path.exists()
+    if not checkpoint_path.exists():
+        decision["decision"] = "invalid"
+        decision["reason"] = "promoted_checkpoint_missing"
+        return decision
+
+    production_checkpoint = Path(production_checkpoint_path).resolve()
+    metadata_file = Path(metadata_path).resolve()
+    metadata_payload = {
+        "source_checkpoint": _repo_relative_or_absolute(Path.cwd().resolve(), checkpoint_path),
+        "source_ladder_summary": _repo_relative_or_absolute(Path.cwd().resolve(), summary_file),
+        "source_ladder_manifest": _repo_relative_or_absolute(Path.cwd().resolve(), manifest_path),
+        "promoted_submission_id": champion_id,
+        "promoted_submission_name": str(champion.get("name", "")).strip(),
+        "selection_basis": "ladder_promoted_candidate",
+        "notes": "Bundled production checkpoint promoted from a Hex6 ladder result.",
+        "previous_metadata": _read_json(metadata_file) if metadata_file.exists() else {},
+        "generated_at": utc_text(),
+    }
+    decision.update(
+        {
+            "decision": "promote_champion",
+            "production_checkpoint_path": str(production_checkpoint),
+            "metadata_path": str(metadata_file),
+            "metadata": metadata_payload,
+        }
+    )
+    if not apply:
+        decision["reason"] = "dry_run"
+        return decision
+
+    production_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+    metadata_file.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(checkpoint_path, production_checkpoint)
+    _write_json(metadata_file, metadata_payload)
+    decision["applied"] = True
+    decision["reason"] = "applied"
+    return decision
+
+
 def run_worker_loop(
     config: AutopilotConfig,
     *,
@@ -250,6 +534,7 @@ def run_worker_loop(
     once: bool = False,
     max_jobs: int | None = None,
     dry_run: bool = False,
+    job_timeout_minutes: float | None = None,
 ) -> None:
     jobs_completed = 0
     selected_status_backend = status_backend or config.default_status_backend
@@ -265,6 +550,7 @@ def run_worker_loop(
                 print(json.dumps({"stage": "idle", "updated_at": utc_text()}, indent=2))
                 break
             run_id = build_run_id(config.default_run_prefix, request.request_id)
+            timeout_minutes = _job_timeout_minutes(config, request, job_timeout_minutes)
             command = build_job_command(
                 JobSpec(request.request_id, request.kind, request.priority, True, 0.0, dict(request.options)),
                 python_exe=python_exe,
@@ -280,6 +566,7 @@ def run_worker_loop(
                         "priority": request.priority,
                         "run_id": run_id,
                         "command": command,
+                        "timeout_minutes": timeout_minutes,
                     },
                     indent=2,
                 )
@@ -304,6 +591,7 @@ def run_worker_loop(
         payload["run_id"] = run_id
         _write_json(running_path, payload)
 
+        timeout_minutes = _job_timeout_minutes(config, request, job_timeout_minutes)
         command = build_job_command(
             JobSpec(request.request_id, request.kind, request.priority, True, 0.0, dict(request.options)),
             python_exe=python_exe,
@@ -319,20 +607,64 @@ def run_worker_loop(
                     "priority": request.priority,
                     "run_id": run_id,
                     "command": command,
+                    "timeout_minutes": timeout_minutes,
                 },
                 indent=2,
             )
         )
-        completed = subprocess.run(command, cwd=resolved_repo_root, check=False)
+        timed_out = False
+        error = ""
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=resolved_repo_root,
+                check=False,
+                timeout=(timeout_minutes * 60.0 if timeout_minutes > 0 else None),
+            )
+            exit_code = int(completed.returncode)
+        except subprocess.TimeoutExpired as exc:
+            timed_out = True
+            exit_code = 124
+            error = f"job timed out after {timeout_minutes:g} minutes"
+            print(
+                json.dumps(
+                    {
+                        "stage": "job_timeout",
+                        "request_id": request.request_id,
+                        "run_id": run_id,
+                        "timeout_minutes": timeout_minutes,
+                        "command": exc.cmd,
+                    },
+                    indent=2,
+                )
+            )
         result_payload = build_request_result(config, request, repo_root=resolved_repo_root)
-        complete_job_request(
+        if timed_out:
+            result_payload["timed_out"] = True
+            result_payload["timeout_minutes"] = timeout_minutes
+        result_path = complete_job_request(
             config,
             request_id=request.request_id,
-            success=int(completed.returncode) == 0,
-            exit_code=int(completed.returncode),
+            success=exit_code == 0,
+            exit_code=exit_code,
             result_payload=result_payload,
-            error="" if int(completed.returncode) == 0 else f"job exited with code {int(completed.returncode)}",
+            error=error if error else ("" if exit_code == 0 else f"job exited with code {exit_code}"),
         )
+        try:
+            bundle = export_result_bundle(config, result_path, repo_root=resolved_repo_root)
+            print(json.dumps({"stage": "artifact_bundle", **bundle}, indent=2))
+        except Exception as exc:  # pragma: no cover - best effort durability path
+            print(
+                json.dumps(
+                    {
+                        "stage": "artifact_bundle_failed",
+                        "request_id": request.request_id,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                    indent=2,
+                )
+            )
         jobs_completed += 1
         if once:
             break
@@ -412,6 +744,15 @@ def build_request_result(
         payload["summary_path"] = str(summary)
         payload["resolved_summary_path"] = str(summary.resolve())
     return payload
+
+
+def _job_timeout_minutes(config: AutopilotConfig, request: JobRequest, override: float | None) -> float:
+    if override is not None:
+        return max(float(override), 0.0)
+    raw_request_timeout = request.options.get("timeout_minutes")
+    if raw_request_timeout is not None:
+        return max(float(raw_request_timeout), 0.0)
+    return config.default_job_timeout_minutes
 
 
 def load_research_backlog(config: AutopilotConfig) -> tuple[ResearchIdea, ...]:
@@ -586,6 +927,223 @@ def _artifact_payload(
             "notes": "Autopilot-returned training candidate.",
         }
     return payload
+
+
+def _append_existing_request_file(config: AutopilotConfig, request_id: str, candidates: list[Path]) -> None:
+    for status in ("pending", "running", "completed", "failed"):
+        path = _request_status_dir(config, status) / f"{request_id}.json"
+        if path.exists():
+            candidates.append(path.resolve())
+
+
+def _append_result_path(
+    payload: dict[str, Any],
+    key: str,
+    repo_root: Path,
+    candidates: list[Path],
+    missing: list[str],
+) -> None:
+    raw_value = str(payload.get(key, "")).strip()
+    if not raw_value:
+        return
+    path = _resolve_runtime_path(repo_root, raw_value)
+    if path.exists():
+        candidates.append(path)
+    else:
+        missing.append(raw_value)
+
+
+def _append_cycle_evidence(summary_path: Path, repo_root: Path, candidates: list[Path]) -> None:
+    try:
+        summary = _read_json(summary_path)
+    except Exception:
+        return
+    for key in ("latest_checkpoint", "best_checkpoint"):
+        raw_value = str(summary.get(key, "")).strip()
+        if raw_value:
+            path = _resolve_runtime_path(repo_root, raw_value)
+            if path.exists():
+                candidates.append(path)
+    for cycle in summary.get("cycles", []):
+        if not isinstance(cycle, dict):
+            continue
+        metrics = _mapping(cycle.get("metrics"))
+        raw_checkpoint = str(metrics.get("checkpoint", "")).strip()
+        if raw_checkpoint:
+            checkpoint_path = _resolve_runtime_path(repo_root, raw_checkpoint)
+            if checkpoint_path.exists():
+                candidates.append(checkpoint_path)
+            _append_nearby_cycle_files(checkpoint_path.parent, candidates)
+
+
+def _append_nearby_cycle_files(cycle_dir: Path, candidates: list[Path]) -> None:
+    if not cycle_dir.exists():
+        return
+    for relative in (
+        "metrics.json",
+        "arena.json",
+        "post_train_tournament/summary.json",
+        "promotion_match/summary.json",
+        "human_exploit_probe/summary.json",
+    ):
+        path = cycle_dir / relative
+        if path.exists():
+            candidates.append(path)
+
+
+def _dedupe_paths(paths: Iterable[Path]) -> list[Path]:
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for raw_path in paths:
+        path = Path(raw_path).resolve()
+        key = str(path).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
+def _archive_name(repo_root: Path, file_path: Path, used_names: set[str]) -> str:
+    try:
+        arcname = file_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        arcname = f"external/{_safe_identifier(file_path.parent.name)}_{file_path.name}"
+    candidate = arcname
+    suffix = 2
+    while candidate in used_names:
+        path = Path(arcname)
+        candidate = f"{path.with_suffix('').as_posix()}_{suffix}{path.suffix}"
+        suffix += 1
+    used_names.add(candidate)
+    return candidate
+
+
+def _judge_ladder_result(judgement: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    reasons = judgement["reasons"]
+    if not isinstance(reasons, list):
+        raise TypeError("judgement reasons must be a list")
+    raw_summary_path = str(result.get("resolved_summary_path") or result.get("summary_path") or "").strip()
+    if not raw_summary_path:
+        judgement["summary_path"] = ""
+        judgement["decision"] = "follow_up"
+        reasons.append("ladder_summary_missing")
+        return judgement
+    summary_path = Path(raw_summary_path).resolve()
+    judgement["summary_path"] = str(summary_path)
+    if not summary_path.exists():
+        judgement["decision"] = "follow_up"
+        reasons.append("ladder_summary_missing")
+        return judgement
+    summary = _read_json(summary_path)
+    promoted = list(summary.get("promoted_submission_ids", []))
+    judgement["promoted_submission_ids"] = promoted
+    judgement["processed_submission_ids"] = list(summary.get("processed_submission_ids", []))
+    if promoted:
+        judgement["decision"] = "promote_champion"
+        reasons.append("ladder_promoted_candidate")
+    else:
+        reasons.append("ladder_no_promotion")
+    return judgement
+
+
+def _result_checkpoint_value(result: dict[str, Any]) -> str:
+    for key in ("best_checkpoint", "latest_checkpoint", "checkpoint_path"):
+        value = str(result.get(key, "")).strip()
+        if value:
+            return value
+    suggestion = _mapping(result.get("suggested_ladder_submission"))
+    return str(suggestion.get("checkpoint_path", "")).strip()
+
+
+def _result_config_path(result: dict[str, Any]) -> str:
+    suggestion = _mapping(result.get("suggested_ladder_submission"))
+    return str(suggestion.get("config_path") or result.get("config_path", "")).strip()
+
+
+def _write_ladder_manifest(
+    path: Path,
+    *,
+    repo_root: Path,
+    request_id: str,
+    submission_id: str,
+    checkpoint_path: Path,
+    candidate_config_path: Path | None,
+) -> None:
+    manifest_dir = path.parent.resolve()
+    champion_config = _relative_path_for_toml(manifest_dir, repo_root / "configs" / "local_4h_strongest_v2_gumbel.toml")
+    champion_checkpoint = _relative_path_for_toml(manifest_dir, repo_root / "models" / "production" / "hex6_champion.pt")
+    candidate_checkpoint = _relative_path_for_toml(manifest_dir, checkpoint_path)
+    candidate_config = _relative_path_for_toml(manifest_dir, candidate_config_path) if candidate_config_path is not None else ""
+    lines = [
+        f"# Generated from autopilot result {request_id}.",
+        "",
+        "[champion]",
+        'submission_id = "champion_production"',
+        'name = "Production Champion"',
+        'kind = "checkpoint"',
+        "slot = 0",
+        f"config_path = {_toml_string(champion_config)}",
+        f"checkpoint_path = {_toml_string(champion_checkpoint)}",
+        'notes = "Current production champion used as incumbent."',
+        "",
+        "[[submissions]]",
+        f"submission_id = {_toml_string(submission_id)}",
+        f"name = {_toml_string('Autopilot ' + request_id)}",
+        'kind = "checkpoint"',
+        "slot = 1",
+    ]
+    if candidate_config:
+        lines.append(f"config_path = {_toml_string(candidate_config)}")
+    lines.extend(
+        [
+            f"checkpoint_path = {_toml_string(candidate_checkpoint)}",
+            f"notes = {_toml_string('Autopilot-returned training candidate from ' + request_id + '.')}",
+            "",
+        ]
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="ascii")
+
+
+def _safe_identifier(value: str) -> str:
+    identifier = re.sub(r"[^A-Za-z0-9_]+", "_", value.strip()).strip("_").lower()
+    return identifier or "result"
+
+
+def _relative_path_for_toml(base_dir: Path, target: Path) -> str:
+    return Path(_repo_relative_text(base_dir, target)).as_posix()
+
+
+def _repo_relative_text(base_dir: Path, target: Path) -> str:
+    try:
+        return str(target.resolve().relative_to(base_dir.resolve())).replace("\\", "/")
+    except ValueError:
+        return str(Path(_relative_path(base_dir.resolve(), target.resolve()))).replace("\\", "/")
+
+
+def _repo_relative_or_absolute(repo_root: Path, target: Path) -> str:
+    try:
+        return target.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return str(target.resolve())
+
+
+def _relative_path(base_dir: Path, target: Path) -> Path:
+    try:
+        return Path(target).resolve().relative_to(base_dir.resolve())
+    except ValueError:
+        import os
+
+        return Path(os.path.relpath(target.resolve(), base_dir.resolve()))
+
+
+def _toml_string(value: str) -> str:
+    return json.dumps(value)
+
+
+def _mapping(value: object) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _job_request_from_payload(payload: dict[str, Any]) -> JobRequest:

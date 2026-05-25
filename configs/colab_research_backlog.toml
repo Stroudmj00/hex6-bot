@@ -57,3 +57,42 @@ source_refs = [
   "configs/colab_ladder.toml",
   "artifacts/colab_ladder/submissions.toml",
 ]
+
+[[ideas]]
+idea_id = "IDEA-006"
+title = "Defend-first draw breaker training lane"
+priority = 98
+summary = "Design the next champion-seeded Colab lane specifically to reduce defend-first board-exhausted draws without weakening decisive conversion strength."
+deliverable = "A repo-grounded proposal with config changes, starting checkpoint, target suites, and a ladder acceptance rule."
+source_refs = [
+  "docs/principal-strength-report.md",
+  "configs/local_4h_strongest_v2_gumbel.toml",
+  "src/hex6/train/run_cycle.py",
+  "src/hex6/eval/arena.py",
+]
+
+[[ideas]]
+idea_id = "IDEA-007"
+title = "Promotion-to-production evidence contract"
+priority = 88
+summary = "Specify the exact evidence and file update sequence required before a ladder-promoted checkpoint replaces models/production/hex6_champion.pt."
+deliverable = "A short operator contract with code touch points for an eventual automated promote command."
+source_refs = [
+  "src/hex6/eval/ladder.py",
+  "src/hex6/eval/run_ladder.py",
+  "models/production/hex6_champion.metadata.json",
+  "docs/vercel.md",
+]
+
+[[ideas]]
+idea_id = "IDEA-008"
+title = "Colab artifact durability fallback"
+priority = 82
+summary = "Design a no-Drive fallback that still preserves result JSON, metrics, and checkpoints when Colab Drive mount fails or runtimes recycle."
+deliverable = "A practical transport plan and the smallest repo changes needed to make ephemeral Colab runs recoverable."
+source_refs = [
+  "docs/colab-autopilot.md",
+  "notebooks/hex6_colab_autopilot.ipynb",
+  "scripts/colab_autopilot_monitor.py",
+  "src/hex6/integration/autopilot.py",
+]

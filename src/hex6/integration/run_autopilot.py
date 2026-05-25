@@ -9,10 +9,13 @@ from hex6.integration.autopilot import (
     build_research_prompt,
     claim_next_research_idea,
     complete_research_idea,
+    export_result_bundle,
     generate_request_id,
+    judge_request_result,
     list_job_requests,
     load_autopilot_config,
     load_research_backlog,
+    promote_champion_from_ladder,
     read_research_state,
     run_worker_loop,
     submit_job_request,
@@ -48,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--output", default=None)
     submit.add_argument("--output-root", default=None)
     submit.add_argument("--minutes", type=float, default=None)
+    submit.add_argument("--timeout-minutes", type=float, default=None)
     submit.add_argument("--cycles", type=int, default=None)
     submit.add_argument("--start-checkpoint", default=None)
     submit.add_argument("--matrix", default=None)
@@ -82,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--status-backend", default=None)
     worker.add_argument("--once", action="store_true")
     worker.add_argument("--max-jobs", type=int, default=None)
+    worker.add_argument("--job-timeout-minutes", type=float, default=None)
     worker.add_argument("--dry-run", action="store_true")
     worker.set_defaults(handler=handle_worker)
 
@@ -93,6 +98,35 @@ def build_parser() -> argparse.ArgumentParser:
     complete.add_argument("--idea-id", required=True)
     complete.add_argument("--note-path", default="")
     complete.set_defaults(handler=handle_complete_research)
+
+    judge = subparsers.add_parser("judge-result", help="Judge a returned result and optionally submit a ladder request.")
+    judge.add_argument("--result", required=True, help="Path to an artifacts/colab_autopilot/results/*.json file.")
+    judge.add_argument("--manifest", default=None, help="Optional output path for the generated one-candidate ladder manifest.")
+    judge.add_argument("--submit-ladder", action="store_true", help="Submit a ladder request when the checkpoint is present.")
+    judge.add_argument("--ladder-request-id", default=None)
+    judge.add_argument("--ladder-config", default="configs/colab_ladder.toml")
+    judge.add_argument("--ladder-priority", type=int, default=95)
+    judge.add_argument("--ladder-output", default=None)
+    judge.add_argument("--max-submissions", type=int, default=1)
+    judge.set_defaults(handler=handle_judge_result)
+
+    export = subparsers.add_parser("export-result", help="Bundle a returned result and key evidence into a zip file.")
+    export.add_argument("--result", required=True, help="Path to an artifacts/colab_autopilot/results/*.json file.")
+    export.add_argument("--repo-root", default=".")
+    export.add_argument("--output", default=None, help="Optional zip output path.")
+    export.add_argument("--include-checkpoint", action=argparse.BooleanOptionalAction, default=True)
+    export.add_argument("--include-worker-log", action=argparse.BooleanOptionalAction, default=True)
+    export.set_defaults(handler=handle_export_result)
+
+    promote = subparsers.add_parser(
+        "promote-champion",
+        help="Promote a ladder-proven checkpoint into models/production.",
+    )
+    promote.add_argument("--summary", required=True, help="Path to a ladder_summary.json file.")
+    promote.add_argument("--production-checkpoint", default="models/production/hex6_champion.pt")
+    promote.add_argument("--metadata", default="models/production/hex6_champion.metadata.json")
+    promote.add_argument("--apply", action="store_true", help="Actually update the production checkpoint and metadata.")
+    promote.set_defaults(handler=handle_promote_champion)
 
     return parser
 
@@ -164,6 +198,7 @@ def handle_worker(args: argparse.Namespace, config) -> None:
         once=args.once,
         max_jobs=args.max_jobs,
         dry_run=args.dry_run,
+        job_timeout_minutes=args.job_timeout_minutes,
     )
 
 
@@ -199,6 +234,44 @@ def handle_complete_research(args: argparse.Namespace, config) -> None:
     )
 
 
+def handle_judge_result(args: argparse.Namespace, config) -> None:
+    judgement = judge_request_result(
+        config,
+        args.result,
+        manifest_path=args.manifest,
+        submit_ladder=args.submit_ladder,
+        ladder_request_id=args.ladder_request_id,
+        ladder_config=args.ladder_config,
+        ladder_priority=args.ladder_priority,
+        ladder_output=args.ladder_output,
+        max_submissions=args.max_submissions,
+    )
+    print(json.dumps(judgement, indent=2))
+
+
+def handle_export_result(args: argparse.Namespace, config) -> None:
+    bundle = export_result_bundle(
+        config,
+        args.result,
+        repo_root=args.repo_root,
+        output_path=args.output,
+        include_checkpoint=args.include_checkpoint,
+        include_worker_log=args.include_worker_log,
+    )
+    print(json.dumps(bundle, indent=2))
+
+
+def handle_promote_champion(args: argparse.Namespace, config) -> None:
+    del config
+    result = promote_champion_from_ladder(
+        args.summary,
+        production_checkpoint_path=args.production_checkpoint,
+        metadata_path=args.metadata,
+        apply=args.apply,
+    )
+    print(json.dumps(result, indent=2))
+
+
 def _collect_request_options(args: argparse.Namespace) -> dict[str, object]:
     options: dict[str, object] = {}
     for key in (
@@ -206,6 +279,7 @@ def _collect_request_options(args: argparse.Namespace) -> dict[str, object]:
         "output",
         "output_root",
         "minutes",
+        "timeout_minutes",
         "cycles",
         "start_checkpoint",
         "matrix",

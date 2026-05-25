@@ -217,6 +217,8 @@ def cmd_autopilot_worker(args: argparse.Namespace) -> int:
         command.append("--dry-run")
     if args.max_jobs is not None:
         command.extend(["--max-jobs", str(args.max_jobs)])
+    if args.job_timeout_minutes is not None:
+        command.extend(["--job-timeout-minutes", str(args.job_timeout_minutes)])
     return run_command(command, workdir=workdir)
 
 
@@ -299,6 +301,7 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot_worker.add_argument("--once", action="store_true")
     autopilot_worker.add_argument("--dry-run", action="store_true")
     autopilot_worker.add_argument("--max-jobs", type=int, default=None)
+    autopilot_worker.add_argument("--job-timeout-minutes", type=float, default=None)
     autopilot_worker.set_defaults(handler=cmd_autopilot_worker)
 
     return parser

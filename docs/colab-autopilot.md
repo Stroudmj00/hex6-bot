@@ -8,6 +8,61 @@ This workflow sets up a simple division of labor:
 
 The current implementation is file-backed and repo-native. It does not depend on a separate service.
 
+## Will Leaving It Running Create A Super Strong Bot?
+
+Not by itself. The current autopilot can keep Colab busy and can return checkpoints, but strength only compounds when every run is part of a closed promotion loop:
+
+1. Train from the current validated champion, not from a random or stale checkpoint.
+2. Save artifacts durably before Colab can recycle `/content`.
+3. Evaluate every returned checkpoint against the current champion and baseline probes.
+4. Promote only checkpoints that pass the configured ladder or promotion gates.
+5. Feed the promoted checkpoint back into the next training request.
+6. Track failed, draw-heavy, or ambiguous runs as evidence and convert them into targeted follow-up jobs instead of treating them as progress.
+
+If any of those links is missing, unattended Colab time can produce lots of files without producing a stronger bot. The most common failure modes are:
+
+- The worker runs with a credential-dependent status backend and exits before training.
+- The runtime writes useful checkpoints only under ephemeral `/content` and then disconnects.
+- A cycle returns a checkpoint, but no ladder or promotion decision updates the champion.
+- The queue keeps launching similar cycles after the evaluation gate has saturated.
+- The model overfits the current promotion lane and remains weak on defend-first or draw-heavy positions.
+
+The target setup is a judge-controlled loop:
+
+1. Keep `models/production/hex6_champion.pt` as the current production champion.
+2. Submit Colab cycle jobs seeded with `--start-checkpoint models/production/hex6_champion.pt`.
+3. When a cycle returns `best_checkpoint`, write a ladder manifest entry for that exact checkpoint.
+4. Run one ladder job with `configs/colab_ladder.toml`.
+5. If the ladder promotes the checkpoint, update the production champion in a tracked change with the promotion evidence.
+6. If the ladder rejects it, archive the result and submit a targeted follow-up job based on the failure signal.
+
+That loop can improve the bot over time. "Run training forever" cannot be trusted without the promotion, artifact, and feedback steps.
+
+## Goal Startup Checklist
+
+Use this checklist when starting or resuming the Colab autopilot goal:
+
+Start the Codex goal with:
+
+```text
+/goal Operate the Hex6 Colab autopilot loop: keep Colab busy with the highest-value pending job requests, use local work for code/tests/research while compute runs, and judge each returned Colab result as ladder submission, follow-up request, or archived evidence.
+```
+
+1. Confirm the active objective is to keep Colab busy, use local time for research or small validation, and judge every returned result as ladder, follow-up, or archive.
+2. Run the local list command first:
+
+```powershell
+.venv\Scripts\python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml list
+```
+
+3. If there is no useful pending request, submit the highest-value cycle or ladder request from the local judge.
+4. For meaningful training, mount Drive and run from `/content/drive/MyDrive/Hex6-Colab/hex6-bot` before submitting or claiming work. If Colab Drive mount fails, use the rclone fallback and throttle syncs instead of relying on ephemeral `/content`.
+5. In Colab, switch to a T4 runtime before claiming T4-gated work, then verify with `nvidia-smi`.
+6. Run exactly one worker claim with `scripts/colab_run.py autopilot-worker --once`.
+7. While Colab runs, claim or complete one research idea locally instead of running long local training.
+8. When Colab returns a result under `artifacts/colab_autopilot/results/`, run `judge-result` before launching more compute.
+9. If a checkpoint is found, do not call it stronger until a promotion or ladder gate proves it against the current champion.
+
 ## Files
 
 - `configs/colab_autopilot.toml`: broker paths and polling defaults.
@@ -49,7 +104,186 @@ Mark a research idea complete:
 .venv\Scripts\python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml complete-research --idea-id IDEA-001 --note-path artifacts/colab_autopilot/research_notes/IDEA-001.md
 ```
 
+Judge a returned training result and submit a one-candidate ladder request when the checkpoint is present:
+
+```powershell
+.venv\Scripts\python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml judge-result --result artifacts/colab_autopilot/results/<request-id>.json --submit-ladder
+```
+
+When Drive mount is unavailable, bundle a returned result before the Colab runtime can recycle. The worker writes this bundle automatically after completion; this command lets you recreate it manually:
+
+```powershell
+.venv\Scripts\python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml export-result --result artifacts/colab_autopilot/results/<request-id>.json --repo-root .
+```
+
+Dry-run a production champion promotion after a ladder request returns:
+
+```powershell
+.venv\Scripts\python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml promote-champion --summary artifacts/colab_ladder/autopilot/<request-id>/ladder_summary.json
+```
+
+Apply the production champion update only when the dry run reports `decision = "promote_champion"` and the evidence matches the intended candidate:
+
+```powershell
+.venv\Scripts\python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml promote-champion --summary artifacts/colab_ladder/autopilot/<request-id>/ladder_summary.json --apply
+```
+
 ## Colab Worker Flow
+
+### Current Operator Runbook
+
+Prefer the Colab terminal for active operations. Notebook cells are useful for the fixed launcher, but terminal commands are more reliable for debugging, relaunching, and reading logs.
+
+For anything longer than a tiny debug run, prefer a Drive-backed working copy or copy results to Drive as soon as they are produced. Colab `/content` is ephemeral; disconnected or recycled runtimes can erase both the repo checkout and `artifacts/` before the local judge can inspect them.
+
+If Drive mount fails and you must use `/content`, keep runs short and preserve evidence as a single export bundle. Completed autopilot worker jobs create `artifacts/colab_autopilot/exports/<request-id>.zip` with the result JSON, request JSON, summaries, checkpoint, nearby metrics, and worker log when available. Download or sync that zip before disconnecting.
+
+Do not let a Colab claim run unbounded. The broker supports `default_job_timeout_minutes` in `configs/colab_autopilot.toml`, per-request `--timeout-minutes`, and worker-level `--job-timeout-minutes`. A timeout marks the request failed with exit code `124`, writes a result payload, and still attempts to create the export bundle.
+
+If a reconnect probe reports `REPO False` for `/content/hex6-bot/.git`, treat the interrupted job as archived lost-output evidence. Do not promote a checkpoint from that run and do not relaunch meaningful training in `/content` again; switch to a Drive-backed checkout first.
+
+1. Open the notebook URL for the branch you want Colab to run:
+
+```text
+https://colab.research.google.com/github/Stroudmj00/hex6-bot/blob/codex/colab-autopilot-temp/notebooks/hex6_colab_autopilot.ipynb
+```
+
+2. Manually select a GPU runtime before starting expensive work:
+
+```text
+Runtime -> Change runtime type -> Hardware accelerator -> T4 GPU -> Save
+```
+
+3. Verify the runtime before claiming a T4 job:
+
+```bash
+nvidia-smi
+```
+
+If `nvidia-smi` is missing or reports no NVIDIA GPU, do not run the T4-gated worker. Either switch the runtime to T4 first or run only an explicitly CPU-safe debug/inspection command.
+
+4. Clone or update the repo in Colab:
+
+```bash
+cd /content
+if [ ! -d /content/hex6-bot/.git ]; then
+  git clone --branch codex/colab-autopilot-temp --single-branch https://github.com/Stroudmj00/hex6-bot.git /content/hex6-bot
+else
+  cd /content/hex6-bot
+  git fetch origin codex/colab-autopilot-temp
+  git checkout codex/colab-autopilot-temp
+  git pull --ff-only origin codex/colab-autopilot-temp
+fi
+cd /content/hex6-bot
+python -m pip install -e .
+```
+
+Drive-backed form for longer jobs:
+
+```bash
+python - <<'PY'
+from google.colab import drive
+drive.mount('/content/drive')
+PY
+```
+
+Then run the checkout under a durable directory:
+
+```bash
+mkdir -p /content/drive/MyDrive/Hex6-Colab
+cd /content/drive/MyDrive/Hex6-Colab
+if [ ! -d hex6-bot/.git ]; then
+  git clone --branch codex/colab-autopilot-temp --single-branch https://github.com/Stroudmj00/hex6-bot.git hex6-bot
+else
+  cd hex6-bot
+  git fetch origin codex/colab-autopilot-temp
+  git checkout codex/colab-autopilot-temp
+  git pull --ff-only origin codex/colab-autopilot-temp
+  cd ..
+fi
+cd hex6-bot
+python -m pip install -e .
+```
+
+5. Inspect queue state:
+
+```bash
+python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml list
+```
+
+6. Submit a small debug cycle when validating the pipeline or instrumentation:
+
+```bash
+python -m hex6.integration.run_autopilot --plan configs/colab_autopilot.toml submit \
+  --kind cycle \
+  --priority 83 \
+  --notes "T4 debug cycle for Colab pipeline and search-metrics evidence." \
+  --config configs/colab_t4_debug.toml \
+  --output-root artifacts/bootstrap_colab_t4_debug_metrics \
+  --cycles 1
+```
+
+7. Run one T4-gated worker:
+
+```bash
+python scripts/colab_run.py autopilot-worker \
+  --repo-root /content/hex6-bot \
+  --plan configs/colab_autopilot.toml \
+  --worker-id colab-t4-01 \
+  --status-backend none \
+  --job-timeout-minutes 120 \
+  --minimum-gpu-tier T4 \
+  --once
+```
+
+The autopilot plan defaults to `status_backend = "none"` so Colab can run without GitHub credentials. Use `github_branch` only when `HEX6_GITHUB_TOKEN` or another authenticated GitHub path is configured in the runtime.
+
+8. Monitor from another terminal command or rerun after the worker exits:
+
+```bash
+python scripts/colab_autopilot_monitor.py \
+  --repo-root /content/hex6-bot \
+  --worker-state artifacts/colab_autopilot/worker_state.json \
+  --worker-log artifacts/colab_autopilot/worker.log \
+  --tail-lines 160
+```
+
+Progress stages before self-play are diagnostic. `starting` should move quickly to `selecting_device`, `loading_model`, `loading_replay_buffer` when a replay buffer exists, then `starting_self_play`. Once AlphaZero self-play begins, `self_play_heartbeat` should appear before the first root-analysis batch. A run that stays at `loading_model` points at checkpoint/model load; a run that stays at `starting_self_play` or `self_play_heartbeat` points at search/self-play.
+
+9. Inspect returned result and metrics:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+root = Path("/content/hex6-bot/artifacts/bootstrap_colab_t4_debug_metrics")
+metrics_path = root / "cycle_001" / "metrics.json"
+summary_path = root / "cycle_summary.json"
+
+if summary_path.exists():
+    print(json.dumps(json.loads(summary_path.read_text(encoding="ascii")), indent=2))
+if metrics_path.exists():
+    metrics = json.loads(metrics_path.read_text(encoding="ascii"))
+    print(json.dumps({
+        "device": metrics.get("device"),
+        "examples": metrics.get("examples"),
+        "self_play_seconds": metrics.get("self_play_seconds"),
+        "training_seconds": metrics.get("training_seconds"),
+        "total_seconds": metrics.get("total_seconds"),
+        "resource_summary": metrics.get("resource_summary", {}),
+        "self_play_search_metrics": metrics.get("self_play_search_metrics", {}),
+    }, indent=2))
+PY
+```
+
+10. Judge the result:
+
+- Promote to ladder only when the checkpoint came from a meaningful training/eval profile and has explicit promotion or ladder evidence.
+- Submit a follow-up Colab request when the result exposes a specific next experiment or failure boundary.
+- Archive as evidence only when the run is a tiny debug, CPU fallback, failed `SIGKILL`, or instrumentation probe with no strength evidence.
+
+Do not commit anything under `artifacts/`. Returned Colab payloads are evidence for decisions, not source files.
 
 Notebook form:
 
