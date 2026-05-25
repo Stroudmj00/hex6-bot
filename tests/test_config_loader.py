@@ -230,6 +230,28 @@ def test_load_colab_t4_debug_config() -> None:
     assert config.integration.status_backend == "github_branch"
 
 
+def test_load_colab_t4_single_cycle_config() -> None:
+    config = load_config("configs/colab_t4_single_cycle.toml")
+
+    assert config.project.phase == "colab_t4_single_cycle"
+    assert config.runtime.cpu_threads == 2
+    assert config.runtime.interop_threads == 1
+    assert config.search.root_simulations == 24
+    assert config.search.parallel_expansions_per_root == 1
+    assert config.prototype.first_stone_candidate_limit == 5
+    assert config.training.self_play_workers == 1
+    assert config.training.data_loader_workers == 0
+    assert config.training.pin_memory is False
+    assert config.training.bootstrap_games == 4
+    assert config.training.max_game_plies == 100
+    assert config.training.batch_size == 8
+    assert config.evaluation.arena_games == 0
+    assert config.evaluation.max_game_plies == 100
+    assert config.evaluation.post_train_max_game_plies == 100
+    assert config.model.blocks == 2
+    assert config.integration.status_backend == "github_branch"
+
+
 def test_load_local_4h_strongest_v2_gumbel_config() -> None:
     config = load_config("configs/local_4h_strongest_v2_gumbel.toml")
 
