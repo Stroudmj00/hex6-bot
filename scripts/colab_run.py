@@ -186,6 +186,40 @@ def cmd_runtime_benchmark(args: argparse.Namespace) -> int:
     return run_command(command, workdir=workdir)
 
 
+def cmd_ladder(args: argparse.Namespace) -> int:
+    workdir = resolve_repo_root(args.repo_root)
+    command = build_common_command(args.python_exe, "hex6.eval.run_ladder")
+    command.extend(["--config", args.config, "--manifest", args.manifest, "--output", args.output])
+    if args.state:
+        command.extend(["--state", args.state])
+    if args.ledger:
+        command.extend(["--ledger", args.ledger])
+    if args.max_submissions is not None:
+        command.extend(["--max-submissions", str(args.max_submissions)])
+    if not args.resume:
+        command.append("--no-resume")
+    if args.run_id:
+        command.extend(["--run-id", args.run_id])
+    if args.status_backend:
+        command.extend(["--status-backend", args.status_backend])
+    return run_command(command, workdir=workdir)
+
+
+def cmd_autopilot_worker(args: argparse.Namespace) -> int:
+    workdir = resolve_repo_root(args.repo_root)
+    command = build_common_command(args.python_exe, "hex6.integration.run_autopilot")
+    command.extend(["--plan", args.plan, "worker", "--repo-root", str(workdir), "--worker-id", args.worker_id])
+    if args.status_backend:
+        command.extend(["--status-backend", args.status_backend])
+    if args.once:
+        command.append("--once")
+    if args.dry_run:
+        command.append("--dry-run")
+    if args.max_jobs is not None:
+        command.extend(["--max-jobs", str(args.max_jobs)])
+    return run_command(command, workdir=workdir)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run standard Hex6 jobs from Colab.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -246,6 +280,26 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_benchmark.add_argument("--max-game-plies", type=int, default=0)
     runtime_benchmark.add_argument("--keep-artifacts", action="store_true")
     runtime_benchmark.set_defaults(handler=cmd_runtime_benchmark)
+
+    ladder = subparsers.add_parser("ladder", help="Run the Colab ladder evaluation.")
+    add_shared_run_args(ladder)
+    ladder.add_argument("--config", default="configs/colab_ladder.toml")
+    ladder.add_argument("--manifest", default="artifacts/colab_ladder/submissions.toml")
+    ladder.add_argument("--output", default="artifacts/colab_ladder")
+    ladder.add_argument("--state", default=None)
+    ladder.add_argument("--ledger", default=None)
+    ladder.add_argument("--max-submissions", type=int, default=None)
+    ladder.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
+    ladder.set_defaults(handler=cmd_ladder)
+
+    autopilot_worker = subparsers.add_parser("autopilot-worker", help="Poll and execute pending autopilot job requests.")
+    add_shared_run_args(autopilot_worker)
+    autopilot_worker.add_argument("--plan", default="configs/colab_autopilot.toml")
+    autopilot_worker.add_argument("--worker-id", default="colab-worker-01")
+    autopilot_worker.add_argument("--once", action="store_true")
+    autopilot_worker.add_argument("--dry-run", action="store_true")
+    autopilot_worker.add_argument("--max-jobs", type=int, default=None)
+    autopilot_worker.set_defaults(handler=cmd_autopilot_worker)
 
     return parser
 
