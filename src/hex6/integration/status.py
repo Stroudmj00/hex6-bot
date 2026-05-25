@@ -298,6 +298,10 @@ def resolve_github_token(require: bool) -> str | None:
         if token:
             return token
 
+    token = _resolve_colab_secret(("HEX6_GITHUB_TOKEN", "GITHUB_TOKEN"))
+    if token:
+        return token
+
     gh_path = _find_gh_cli()
     if gh_path is not None:
         result = subprocess.run(
@@ -312,8 +316,25 @@ def resolve_github_token(require: bool) -> str | None:
 
     if require:
         raise RuntimeError(
-            "GitHub token not available. Set HEX6_GITHUB_TOKEN in Colab or authenticate gh locally."
+            "GitHub token not available. Set HEX6_GITHUB_TOKEN in Colab Secrets/environment or authenticate gh locally."
         )
+    return None
+
+
+def _resolve_colab_secret(names: tuple[str, ...]) -> str | None:
+    try:
+        from google.colab import userdata  # type: ignore[import-not-found]
+    except Exception:
+        return None
+
+    for name in names:
+        try:
+            value = userdata.get(name)
+        except Exception:
+            continue
+        token = str(value).strip() if value is not None else ""
+        if token:
+            return token
     return None
 
 
