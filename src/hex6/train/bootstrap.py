@@ -101,6 +101,7 @@ class BootstrapDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]])
 
 
 ProgressCallback = Callable[[dict[str, object]], None]
+SearchMetrics = dict[str, int | float]
 
 
 def generate_bootstrap_examples(
@@ -119,6 +120,7 @@ def generate_bootstrap_examples_with_progress(
     progress_callback: ProgressCallback | None = None,
     model: HexPolicyValueNet | None = None,
     device: torch.device | None = None,
+    search_metrics: SearchMetrics | None = None,
 ) -> list[BootstrapExample]:
     _validate_policy_target(config.training.policy_target)
     _validate_bootstrap_strategy(config.training.bootstrap_strategy)
@@ -158,6 +160,7 @@ def generate_bootstrap_examples_with_progress(
                     completed_games=game_index + 1,
                     progress_path=progress_path,
                     progress_callback=progress_callback,
+                    search_metrics_snapshot=search.metrics_snapshot(),
                 )
         else:
             completed_games = 0
@@ -176,7 +179,11 @@ def generate_bootstrap_examples_with_progress(
                     completed_games=completed_games,
                     progress_path=progress_path,
                     progress_callback=progress_callback,
+                    search_metrics_snapshot=search.metrics_snapshot(),
                 )
+        if search_metrics is not None:
+            search_metrics.clear()
+            search_metrics.update(search.metrics_snapshot())
         return examples
 
     if workers == 1 or total_games <= 1:
@@ -233,7 +240,7 @@ def train_bootstrap(
     final_stage: str = "complete",
     init_checkpoint_path: str | Path | None = None,
     replay_buffer_path: str | Path | None = None,
-) -> dict[str, float | int | str]:
+) -> dict[str, object]:
     config = config or load_config()
     configure_runtime(config)
     overall_started = time.perf_counter()
@@ -253,6 +260,7 @@ def train_bootstrap(
 
     try:
         self_play_started = time.perf_counter()
+        self_play_search_metrics: SearchMetrics = {}
         examples = generate_bootstrap_examples_with_progress(
             config,
             config_path=config_path,
@@ -260,6 +268,7 @@ def train_bootstrap(
             progress_callback=progress_callback,
             model=model,
             device=device,
+            search_metrics=self_play_search_metrics,
         )
         self_play_seconds = round(time.perf_counter() - self_play_started, 3)
         replay_started = time.perf_counter()
@@ -409,6 +418,8 @@ def train_bootstrap(
             "resource_usage_path": str(resource_usage_path),
             "resource_summary": resource_payload.get("summary", {}),
         }
+        if self_play_search_metrics:
+            metrics["self_play_search_metrics"] = self_play_search_metrics
         if init_checkpoint_path is not None:
             metrics["init_checkpoint"] = str(init_checkpoint_path)
             metrics.update(init_report)
@@ -499,6 +510,7 @@ def _collect_game_result(
     completed_games: int,
     progress_path: Path | None,
     progress_callback: ProgressCallback | None,
+    search_metrics_snapshot: SearchMetrics | None = None,
 ) -> None:
     print(
         f"[self-play] game {result.game_index + 1}/{total_games} "
@@ -508,19 +520,22 @@ def _collect_game_result(
     )
     examples.extend(result.examples)
     if progress_path is not None or progress_callback is not None:
+        payload: dict[str, object] = {
+            "stage": "self_play",
+            "completed_games": completed_games,
+            "total_games": total_games,
+            "examples_so_far": len(examples),
+            "last_winner": result.winner,
+            "last_game_plies": result.plies,
+            "last_game_index": result.game_index + 1,
+            "last_opening_name": result.opening_name,
+        }
+        if search_metrics_snapshot is not None:
+            payload["search_metrics"] = search_metrics_snapshot
         _emit_progress(
             progress_path,
             progress_callback,
-            {
-                "stage": "self_play",
-                "completed_games": completed_games,
-                "total_games": total_games,
-                "examples_so_far": len(examples),
-                "last_winner": result.winner,
-                "last_game_plies": result.plies,
-                "last_game_index": result.game_index + 1,
-                "last_opening_name": result.opening_name,
-            },
+            payload,
         )
 
 

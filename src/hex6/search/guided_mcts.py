@@ -94,6 +94,7 @@ class GuidedMctsTurnSearch:
         self._rng = random.Random(seed)
         self._policy_cache: dict[tuple[object, ...], _PolicyLookup] = {}
         self._value_cache: dict[tuple[object, ...], float] = {}
+        self._metrics = _empty_metrics()
 
     @classmethod
     def from_checkpoint(
@@ -150,6 +151,7 @@ class GuidedMctsTurnSearch:
         add_root_noise: bool = False,
     ) -> list[RootAnalysis]:
         state_list = list(states)
+        self._increment_metric("roots_analyzed", len(state_list))
         analyses: list[RootAnalysis | None] = [None] * len(state_list)
         pending: list[tuple[int, _Node, dict[tuple[object, ...], _Node], Player]] = []
 
@@ -161,6 +163,7 @@ class GuidedMctsTurnSearch:
             node_cache: dict[tuple[object, ...], _Node] = {}
             root = self._node_for_state(state, node_cache, use_cache=config.search.use_transposition_table)
             pending.append((index, root, node_cache, state.to_play))
+        self._increment_metric("roots_searched", len(pending))
 
         if pending:
             simulations = max(1, config.search.root_simulations)
@@ -183,6 +186,9 @@ class GuidedMctsTurnSearch:
                 add_root_noise_for_wave = False
                 if not traces:
                     break
+                self._increment_metric("waves")
+                self._increment_metric("traces", len(traces))
+                self._metrics["max_wave_traces"] = max(self._metrics["max_wave_traces"], len(traces))
                 self._prime_pending_inference(traces, config)
 
                 for trace in traces:
@@ -256,11 +262,27 @@ class GuidedMctsTurnSearch:
         self._value_cache.clear()
         self._baseline.clear_caches()
 
+    def reset_metrics(self) -> None:
+        self._metrics = _empty_metrics()
+
+    def metrics_snapshot(self) -> dict[str, int | float]:
+        metrics: dict[str, int | float] = dict(self._metrics)
+        batched_calls = metrics["batched_inference_calls"]
+        metrics["avg_batch_size"] = (
+            round(metrics["batched_inference_positions"] / batched_calls, 3)
+            if batched_calls
+            else 0.0
+        )
+        metrics["policy_cache_size"] = len(self._policy_cache)
+        metrics["value_cache_size"] = len(self._value_cache)
+        return metrics
+
     def _shortcut_analysis(self, state: GameState, config: AppConfig) -> RootAnalysis | None:
         if state.is_terminal:
             raise IllegalMoveError("cannot search from a terminal position")
         if not state.stones and state.placements_remaining == 1:
             opening = self._baseline.choose_turn(state, config)
+            self._increment_metric("opening_shortcuts")
             return RootAnalysis(
                 chosen_turn=opening,
                 turn_stats=(RootTurnStat(cells=opening.cells, visits=1, prior=1.0, mean_value=0.0),),
@@ -272,6 +294,7 @@ class GuidedMctsTurnSearch:
         if tactical is None:
             return None
         cells = tactical.cells
+        self._increment_metric("tactical_shortcuts")
         return RootAnalysis(
             chosen_turn=tactical,
             turn_stats=(RootTurnStat(cells=cells, visits=1, prior=1.0, mean_value=0.0),),
@@ -427,6 +450,7 @@ class GuidedMctsTurnSearch:
         is_root: bool,
         add_root_noise: bool,
     ) -> float:
+        self._increment_metric("nodes_expanded")
         if node.state.is_terminal:
             node.expanded = True
             return self._terminal_value(node.state, root_player)
@@ -438,6 +462,8 @@ class GuidedMctsTurnSearch:
             first_width=config.prototype.first_stone_candidate_limit,
             second_width=config.prototype.second_stone_candidate_limit,
         )
+        self._increment_metric("candidate_turns_total", len(candidate_turns))
+        self._metrics["max_candidate_turns"] = max(self._metrics["max_candidate_turns"], len(candidate_turns))
         priors = self._turn_priors(node.state, candidate_turns, config)
         if add_root_noise and priors:
             priors = self._mix_root_noise(priors, config)
@@ -575,6 +601,8 @@ class GuidedMctsTurnSearch:
         if cached is None:
             self._cache_inference(state, config, perspective)
             cached = self._policy_cache[key]
+        else:
+            self._increment_metric("policy_cache_hits")
         return cached
 
     def _evaluate_value(self, state: GameState, config: AppConfig, root_player: Player) -> float:
@@ -587,6 +615,8 @@ class GuidedMctsTurnSearch:
         if cached is None:
             self._cache_inference(state, config, perspective)
             cached = self._value_cache[key]
+        else:
+            self._increment_metric("value_cache_hits")
         return cached if perspective == root_player else -cached
 
     def _cache_inference(
@@ -598,11 +628,13 @@ class GuidedMctsTurnSearch:
         policy_key = ("policy", state.signature(), perspective)
         value_key = ("value", state.signature(), perspective)
         if policy_key in self._policy_cache and value_key in self._value_cache:
+            self._increment_metric("single_inference_cache_hits")
             return
 
         encoded = encode_state(state, config, perspective=perspective)
         with torch.inference_mode():
             policy_logits, value = self._model(encoded.tensor.unsqueeze(0).to(self._device))
+        self._increment_metric("single_inference_calls")
         probs = torch.softmax(policy_logits.squeeze(0), dim=0).cpu()
         self._policy_cache[policy_key] = _PolicyLookup(
             probabilities=probs,
@@ -623,9 +655,11 @@ class GuidedMctsTurnSearch:
             policy_key = ("policy", state.signature(), perspective)
             value_key = ("value", state.signature(), perspective)
             if policy_key in self._policy_cache and value_key in self._value_cache:
+                self._increment_metric("batch_inference_cache_hits")
                 continue
             dedupe_key = (state.signature(), perspective)
             if dedupe_key in seen:
+                self._increment_metric("batch_deduped_requests")
                 continue
             seen.add(dedupe_key)
             encoded = encode_state(state, config, perspective=perspective)
@@ -637,6 +671,10 @@ class GuidedMctsTurnSearch:
         batch = torch.stack([encoded.tensor for _, _, encoded in pending]).to(self._device)
         with torch.inference_mode():
             policy_logits, values = self._model(batch)
+        batch_size = len(pending)
+        self._increment_metric("batched_inference_calls")
+        self._increment_metric("batched_inference_positions", batch_size)
+        self._metrics["max_batch_size"] = max(self._metrics["max_batch_size"], batch_size)
         probabilities = torch.softmax(policy_logits, dim=1).cpu()
         values_cpu = values.cpu()
 
@@ -812,6 +850,33 @@ class GuidedMctsTurnSearch:
     def _sample_gumbel(self) -> float:
         uniform = min(max(self._rng.random(), 1e-9), 1.0 - 1e-9)
         return -math.log(-math.log(uniform))
+
+    def _increment_metric(self, key: str, amount: int = 1) -> None:
+        self._metrics[key] += amount
+
+
+def _empty_metrics() -> dict[str, int]:
+    return {
+        "roots_analyzed": 0,
+        "roots_searched": 0,
+        "opening_shortcuts": 0,
+        "tactical_shortcuts": 0,
+        "waves": 0,
+        "traces": 0,
+        "max_wave_traces": 0,
+        "nodes_expanded": 0,
+        "candidate_turns_total": 0,
+        "max_candidate_turns": 0,
+        "policy_cache_hits": 0,
+        "value_cache_hits": 0,
+        "single_inference_calls": 0,
+        "single_inference_cache_hits": 0,
+        "batched_inference_calls": 0,
+        "batched_inference_positions": 0,
+        "batch_inference_cache_hits": 0,
+        "batch_deduped_requests": 0,
+        "max_batch_size": 0,
+    }
 
 def _select_device(config: AppConfig) -> torch.device:
     if config.runtime.preferred_device == "cuda" and torch.cuda.is_available():

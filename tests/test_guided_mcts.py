@@ -238,3 +238,42 @@ def test_guided_mcts_gumbel_root_mode_is_deterministic_for_fixed_seed() -> None:
     assert second.simulations == 5
     assert first.chosen_turn.cells == second.chosen_turn.cells
     assert first.turn_stats
+
+
+def test_guided_mcts_metrics_snapshot_tracks_search_and_inference() -> None:
+    config = load_config_with_overrides(
+        "configs/fast.toml",
+        {
+            "search": {
+                "root_simulations": 3,
+                "parallel_expansions_per_root": 2,
+                "dirichlet_epsilon": 0.0,
+                "tactical_solver": "none",
+            }
+        },
+    )
+    model = CountingModel(
+        HexPolicyValueNet(
+            input_channels=6,
+            channels=config.model.channels,
+            blocks=config.model.blocks,
+        )
+    )
+    search = GuidedMctsTurnSearch(model, device=torch.device("cpu"))
+    state = GameState.initial(config.game).apply_placement((0, 0), config.game)
+
+    analysis = search.analyze_root(state, config)
+    metrics = search.metrics_snapshot()
+
+    assert analysis.turn_stats
+    assert metrics["roots_analyzed"] == 1
+    assert metrics["roots_searched"] == 1
+    assert metrics["waves"] >= 1
+    assert metrics["nodes_expanded"] >= 1
+    assert metrics["batched_inference_calls"] >= 1
+    assert metrics["batched_inference_positions"] >= metrics["batched_inference_calls"]
+    assert metrics["max_batch_size"] >= 1
+    assert metrics["avg_batch_size"] >= 1.0
+    assert metrics["policy_cache_size"] >= 1
+    assert metrics["value_cache_size"] >= 1
+    assert model.forward_calls == metrics["single_inference_calls"] + metrics["batched_inference_calls"]

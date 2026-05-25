@@ -346,6 +346,53 @@ def test_train_bootstrap_records_resource_usage(tmp_path: Path) -> None:
     assert metrics["record_resource_usage"] is True
 
 
+def test_train_bootstrap_records_alphazero_search_metrics(tmp_path: Path) -> None:
+    config = load_config_with_overrides(
+        "configs/fast.toml",
+        {
+            "runtime": {
+                "record_resource_usage": False,
+            },
+            "search": {
+                "root_simulations": 1,
+                "parallel_expansions_per_root": 1,
+                "tactical_solver": "none",
+            },
+            "training": {
+                "bootstrap_strategy": "alphazero_self_play",
+                "bootstrap_games": 1,
+                "max_game_plies": 3,
+                "policy_target": "visit_distribution",
+                "bootstrap_opening_suite": "",
+                "bootstrap_seeded_start_fraction": 0.0,
+                "self_play_workers": 1,
+                "replay_buffer_size": 0,
+                "epochs": 1,
+                "batch_size": 2,
+            },
+            "evaluation": {
+                "arena_games": 0,
+            },
+        },
+    )
+    events: list[dict[str, object]] = []
+
+    metrics = train_bootstrap(
+        config,
+        output_dir=tmp_path / "metrics_run",
+        config_path="configs/fast.toml",
+        progress_callback=events.append,
+    )
+
+    search_metrics = metrics["self_play_search_metrics"]
+    assert isinstance(search_metrics, dict)
+    assert search_metrics["roots_analyzed"] >= 2
+    assert search_metrics["opening_shortcuts"] == 1
+    assert search_metrics["batched_inference_calls"] >= 1
+    assert search_metrics["policy_cache_size"] >= 1
+    assert any("search_metrics" in event for event in events if event.get("stage") == "self_play")
+
+
 def test_merge_replay_buffer_reanalyses_recent_examples(monkeypatch, tmp_path: Path) -> None:
     config = load_config_with_overrides(
         "configs/fast.toml",
