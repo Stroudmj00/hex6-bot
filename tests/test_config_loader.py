@@ -189,6 +189,27 @@ def test_load_colab_strongest_v2_config() -> None:
     assert config.search.root_gumbel_scale == 1.0
 
 
+def test_load_colab_strongest_v2_safe_config() -> None:
+    config = load_config("configs/colab_strongest_v2_safe.toml")
+
+    assert config.project.phase == "colab_strongest_v2_safe"
+    assert config.runtime.cpu_threads == 4
+    assert config.runtime.interop_threads == 1
+    assert config.search.root_simulations == 64
+    assert config.search.parallel_expansions_per_root == 1
+    assert config.training.bootstrap_opening_suite == "configs/experiments/bootstrap_conversion_opening_suite_v2.toml"
+    assert config.training.self_play_workers == 2
+    assert config.training.data_loader_workers == 1
+    assert config.training.batch_size == 16
+    assert config.training.reanalyse_fraction == 0.0
+    assert config.training.reanalyse_max_examples == 0
+    assert config.training.reanalyse_priority == "recent"
+    assert config.model.blocks == 3
+    assert config.integration.status_backend == "github_branch"
+    assert config.search.root_policy_mode == "visit_count"
+    assert config.search.root_gumbel_scale == 1.0
+
+
 def test_load_local_4h_strongest_v2_gumbel_config() -> None:
     config = load_config("configs/local_4h_strongest_v2_gumbel.toml")
 
