@@ -1,0 +1,20 @@
+{
+  "request_id": "cycle-debug-20260525-035610",
+  "kind": "cycle",
+  "priority": 94,
+  "created_at": "2026-05-25T08:56:10Z",
+  "notes": "Short T4 debug cycle after repeated ephemeral /content reset lost longer cycle outputs.",
+  "return_policy": "auto",
+  "options": {
+    "config": "configs/colab_t4_debug.toml",
+    "output_root": "artifacts/bootstrap_colab_t4_debug_metrics",
+    "cycles": 1
+  },
+  "claimed_at": "",
+  "claimed_by": "",
+  "completed_at": "",
+  "run_id": "",
+  "status": "pending",
+  "exit_code": null,
+  "error": ""
+}
